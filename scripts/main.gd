@@ -88,6 +88,8 @@ var _test_step := 0
 
 
 func _ready() -> void:
+	# 3D labels (scanner tags, bug numbers) use the same font as the UI.
+	ThemeDB.fallback_font = preload("res://assets/fonts/ui_font.tres")
 	# Menus and Esc handling must keep working while the game tree is paused.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	for arg in OS.get_cmdline_user_args():

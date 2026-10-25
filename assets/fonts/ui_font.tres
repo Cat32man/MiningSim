@@ -1,0 +1,5 @@
+[gd_resource type="SystemFont" format=3]
+
+[resource]
+font_names = PackedStringArray("Bahnschrift", "DIN Alternate", "Segoe UI", "Sans-Serif")
+font_weight = 500

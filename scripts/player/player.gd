@@ -43,6 +43,9 @@ const CLIMB_REACH := 0.75
 const MANTLE_UP := 4.0
 const MANTLE_FORWARD := 3.0
 const MOUSE_SENS := 0.0025
+const CAMERA_HEIGHT := 0.7
+const CAMERA_ROLL := 0.035  # radians of lean at full strafe speed (~2°)
+const CAMERA_DIP := 0.015  # radians of forward lean at full speed
 const INTERACT_REACH := 2.5
 
 ## Slots: miner (1 pickaxe, 2 drill), main weapon (3 laser shotgun), offhand (4 laser pistol).
@@ -182,6 +185,7 @@ var _drill_t := 0.0
 var _drill_stopping := false
 var _bob_phase := 0.0
 var _bob_amount := 0.0
+var _cam_dip := 0.0  # forward-lean part of the camera pitch (kept apart from mouse look)
 var _dust: CPUParticles3D
 
 
@@ -1095,7 +1099,7 @@ func get_state() -> Dictionary:
 	return {
 		"pos": global_position,
 		"yaw": rotation.y,
-		"pitch": camera.rotation.x,
+		"pitch": camera.rotation.x - _cam_dip,
 		"fuel": fuel,
 		"flares": flares,
 		"backpack": backpack.to_data(),
@@ -1339,7 +1343,9 @@ func _animate_tool(delta: float) -> void:
 	var amount := clampf(ground_speed / WALK_SPEED, 0.0, 1.6)
 	_bob_phase += delta * ground_speed * 1.9
 	_bob_amount = lerpf(_bob_amount, amount, minf(delta * 8.0, 1.0))
-	var bob := Vector3(sin(_bob_phase) * 0.014, -absf(cos(_bob_phase)) * 0.012, 0.0) * _bob_amount
+	# The head bobs now, so the tool only sways a little on top of it.
+	var bob := Vector3(sin(_bob_phase) * 0.006, -absf(cos(_bob_phase)) * 0.005, 0.0) * _bob_amount
+	_animate_camera(delta)
 
 	var shake := Vector3.ZERO
 	if _drilling:
@@ -1357,6 +1363,22 @@ func _animate_tool(delta: float) -> void:
 	var lunge := sin(_stab * PI) * (1.0 if _stab > 0.5 else 0.7)
 	_dagger_model.position = DAGGER_REST + bob * 1.2 + Vector3(-0.07, 0.04, -0.24) * lunge
 	_dagger_model.rotation = Vector3(-0.35 - 0.5 * lunge, 0.35 - 0.25 * lunge, 0.15)
+
+
+## Head bob while walking, and a slight lean into the way you're moving: roll toward a
+## strafe, a small dip when going forward.
+func _animate_camera(delta: float) -> void:
+	var head := Vector3(sin(_bob_phase) * 0.018, -absf(cos(_bob_phase)) * 0.03, 0.0) * _bob_amount
+	camera.position = Vector3(head.x, CAMERA_HEIGHT + head.y, 0.0)
+	var local: Vector3 = global_basis.inverse() * velocity
+	var k := 0.0 if climbing else 1.0
+	var roll := -clampf(local.x / SPRINT_SPEED, -1.0, 1.0) * CAMERA_ROLL * k
+	var dip := -clampf(-local.z / SPRINT_SPEED, -1.0, 1.0) * CAMERA_DIP * k * (1.0 if is_on_floor() else 0.3)
+	var t := minf(delta * 7.0, 1.0)
+	camera.rotation.z = lerpf(camera.rotation.z, roll, t)
+	var new_dip := lerpf(_cam_dip, dip, t)
+	camera.rotation.x = clampf(camera.rotation.x - _cam_dip + new_dip, -1.5, 1.5)
+	_cam_dip = new_dip
 
 
 ## Drill animation (24 fps): frames 0-6 spin-up, 6-12 running loop. On release the loop

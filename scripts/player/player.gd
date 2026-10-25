@@ -121,8 +121,9 @@ var progress
 var _quiet_unlocks := false
 var _full_flash_t := 0.0
 var builder
-## Kept for compatibility with older checks; there is no drivable vehicle any more.
+## The silicon harvester you're driving, or null.
 var vehicle = null
+var _saved_layers := Vector2i.ZERO
 ## Set each frame by main from the threat director, for the HUD.
 var threat_label := ""
 ## Stays false until the terrain around the spawn is ready, so the player can't fall through.
@@ -252,6 +253,15 @@ func _input(event: InputEvent) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not controls_enabled:
 		return
+	if vehicle:
+		# Driving: E gets off, Tab opens its cargo; tools stay put away.
+		if event.is_action_pressed("interact"):
+			get_viewport().set_input_as_handled()
+			exit_vehicle()
+		elif event.is_action_pressed("inventory"):
+			get_viewport().set_input_as_handled()
+			building_panel_requested.emit(vehicle)
+		return
 	if event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		get_viewport().set_input_as_handled()
@@ -310,6 +320,9 @@ func _tap_hold(action: String, st: Dictionary, delta: float, on_tap: Callable, o
 
 func _physics_process(delta: float) -> void:
 	if not active:
+		return
+	if vehicle:
+		_ride(delta)
 		return
 
 	if is_on_floor():
@@ -728,6 +741,8 @@ func dig(reach: float, radius: float, strength: float) -> bool:
 	var hit_mat: int = world.material_at(Vector3i((point + forward * 0.5).round()))
 	if Materials.NEEDS_DIAMOND[hit_mat] and not diamond_tipped:
 		_flash("Too hard — needs a diamond tip")
+	elif Materials.NEEDS_HARVESTER[hit_mat]:
+		_flash("Needs the silicon harvester")
 	var mined: Dictionary = world.apply_edit({
 		"type": "carve_sphere",
 		"center": point + forward * radius * 0.35,
@@ -964,6 +979,69 @@ func apply_blueprints() -> void:
 		backpack.changed.emit()
 
 
+# --- Driving ------------------------------------------------------------------
+
+func enter_vehicle(v) -> void:
+	vehicle = v
+	v.driver = self
+	_saved_layers = Vector2i(collision_layer, collision_mask)
+	collision_layer = 0
+	collision_mask = 0
+	velocity = Vector3.ZERO
+	_tool_root.visible = false
+	_drill_holder.visible = false
+	_dagger_model.visible = false
+	global_position = v.seat_position()
+	Sfx.play("click", self)
+
+
+func exit_vehicle() -> void:
+	if vehicle == null:
+		return
+	var v = vehicle
+	vehicle = null
+	if is_instance_valid(v):
+		v.driver = null
+		# Step off the side, clear of the tracks.
+		global_position = v.global_position + v.global_basis.x * 3.2 + Vector3.UP * 1.2
+	collision_layer = _saved_layers.x
+	collision_mask = _saved_layers.y
+	velocity = Vector3.ZERO
+	_tool_root.visible = true
+	_drill_holder.visible = true
+	_select_tool(tool)
+
+
+## Riding on top: WASD goes to the harvester, the body turns with it, mouse look is free.
+func _ride(delta: float) -> void:
+	if not is_instance_valid(vehicle):
+		vehicle = null
+		exit_vehicle()
+		return
+	var input := Vector2.ZERO
+	if controls_enabled:
+		input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var yaw_before: float = vehicle.global_rotation.y
+	vehicle.drive(input, delta, controls_enabled and Input.is_action_pressed("jump"))
+	rotate_y(wrapf(vehicle.global_rotation.y - yaw_before, -PI, PI))
+	global_position = vehicle.seat_position()
+	velocity = Vector3.ZERO
+
+
+## First visits: the fire caves put boss lairs on the scan; the silicon caves unlock the
+## harvester and chip printer blueprints.
+func _note_biome(biome: int) -> void:
+	if progress == null:
+		return
+	if biome == 2 and not progress.fire_visited:
+		progress.fire_visited = true
+	elif biome == 3 and not progress.silicon_found:
+		progress.silicon_found = true
+		if hud:
+			hud.notify("NEW BLUEPRINTS", ["Silicon harvester", "Microchip printer"], Color(0.5, 0.85, 1.0))
+		Sfx.play("scan", self, -4.0, 1.4)
+
+
 ## Thermal suit worn: the fire caves can't hurt you.
 func heat_protected() -> bool:
 	return equipment.count_of(Items.THERMAL_SUIT) > 0
@@ -972,7 +1050,9 @@ func heat_protected() -> bool:
 func _update_heat(delta: float) -> void:
 	if world == null or not active:
 		return
-	var hot: bool = world.biome_at(global_position) == 2  # Generator.BIOME_FIRE
+	var biome: int = world.biome_at(global_position)
+	var hot: bool = biome == 2  # Generator.BIOME_FIRE
+	_note_biome(biome)
 	heat = move_toward(heat, 1.0 if hot else 0.0, delta * 0.5)
 	if not hot or heat_protected() or health <= 0.0:
 		_heat_exposure = 0.0
@@ -1046,8 +1126,8 @@ func scan() -> void:
 		var bp: Vector3 = body.global_position + Vector3(0, 2.0, 0)
 		_scan_marker("✚ YOUR BODY\n%d m" % roundi(bp.distance_to(global_position)), bp,
 			Color(1.0, 0.5, 0.4), 30)
-	# Boss lairs show up from much further away.
-	if director and world._main_gen:
+	# Boss lairs show up from much further away, once you've been to the fire caves.
+	if director and world._main_gen and progress and progress.fire_visited:
 		for dz in range(-1, 2):
 			for dy in range(-1, 2):
 				for dx in range(-1, 2):
@@ -1185,6 +1265,9 @@ func _update_hud() -> void:
 			cache = c
 	if health <= 0.0:
 		prompt = ""  # dead: the death screen says what to do
+	elif vehicle:
+		prompt = "%s
+WASD drive · Space dig down · Tab cargo · E get off" % vehicle.status
 	elif builder and builder.is_placing():
 		prompt = "Placing %s — LMB build · R %s · RMB or Q cancel" % [Buildables.DEFS[builder.selected]["name"],
 			"tilt" if Buildables.DEFS[builder.selected]["mount"] == "wall" else "rotate"]

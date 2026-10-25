@@ -136,6 +136,14 @@ The step between the fire caves and the next biome.
 - **Scanning tower** (15 iron, 20 electrum, 5 diamond): a cheap relay mast. The map is steady within 48 m of each tower, so a chain of towers maps further out.
 - **Tags:** large hidden ore veins, and the signal of the **silicon caves**, the next biome. It's deep and 420–520 m out, at a fixed spot per world. The biome itself comes later.
 
+### Silicon caves [D]
+
+- **Where:** one huge dune cavern, deep (about y −130 to −170) and 420–520 m out, at the spot the scanning table tags. Two long tunnels lead back toward the spawn. Walking in unlocks the harvester and chip printer blueprints.
+- **Silicon sand:** golden and shimmering, in a ~7 m bed under the dunes, over sandstone. Hand tools and Shredders can't take it.
+- **Silicon harvester** (120 iron, 30 steel, 8 obsidianite, 40 electrum): a drivable bore about 1.5 wall pieces tall. [E] climbs on top: WASD drives, Space angles the cut down into the sand, Tab opens its cargo, E gets off. It cuts sand only (rock stops it), burns coal (one per 12 s of work), and sifts silicon into its hopper. The walls it leaves behind are dull plain sand.
+- **Microchip printer** (60 iron, 15 steel, 30 electrum, 40 kW): a 1×2-piece CNC bed, half a piece tall. 4 silicon + 2 electrum + 1 steel → 1 microchip, 20 s. What microchips unlock comes next.
+- **Boss lairs** only show on the scan after you've been to the fire caves.
+
 ## 7. Bugs and threat
 
 - DRG-style bugs. Rare early, escalating **exponentially**, forcing upgrades toward the end. [D]

@@ -11,8 +11,12 @@ const COBALT := 6  # hard-rock ore: thermal suit
 const BASALT := 7  # fire-cave rock, with glowing cracks
 const OBSIDIAN := 8  # fire-cave ore: unlocks the refinery
 const COAL := 9  # fire-cave ore: steel
+const SILICON_SAND := 10  # silicon-cave sand with a golden sheen: only the harvester takes it
+const SAND := 11  # what the harvester leaves behind
+const SANDSTONE := 12  # silicon-cave walls
 
-const NAMES := ["Rock", "Iron", "Electrum", "Bedrock", "Hard rock", "Diamond", "Cobalt", "Basalt", "Obsidian", "Coal"]
+const NAMES := ["Rock", "Iron", "Electrum", "Bedrock", "Hard rock", "Diamond", "Cobalt", "Basalt", "Obsidian", "Coal",
+	"Silicon sand", "Sand", "Sandstone"]
 
 ## Vertex tint.
 const COLOR := [
@@ -26,23 +30,29 @@ const COLOR := [
 	Color(0.15, 0.12, 0.11),  # basalt: near-black, warm
 	Color(0.10, 0.07, 0.14),  # obsidian: glassy violet-black
 	Color(0.06, 0.06, 0.06),  # coal: matte black
+	Color(0.86, 0.68, 0.34),  # silicon sand: warm gold
+	Color(0.62, 0.55, 0.44),  # sand: dull, the shine harvested out
+	Color(0.55, 0.45, 0.34),  # sandstone
 ]
 
 ## Shader inputs (sent as UV2): metallic sheen, and crystal glints.
-const METALLIC := [0.0, 0.45, 0.8, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0, 0.0]
-const GLINT := [0.0, 0.6, 1.0, 0.0, 0.15, 1.0, 0.8, 0.05, 1.0, 0.25]
+const METALLIC := [0.0, 0.45, 0.8, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0, 0.0, 0.55, 0.0, 0.0]
+const GLINT := [0.0, 0.6, 1.0, 0.0, 0.15, 1.0, 0.8, 0.05, 1.0, 0.25, 1.0, 0.05, 0.1]
 
 ## Lava glow in cracks (rock shader emission, sent as 1 - vertex colour alpha).
-const GLOW := [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+const GLOW := [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 ## Dig strength is divided by this. 0 = cannot be mined.
-const HARDNESS := [1.0, 1.0, 0.9, 0.0, 2.6, 1.8, 1.6, 1.4, 2.2, 0.8]
+const HARDNESS := [1.0, 1.0, 0.9, 0.0, 2.6, 1.8, 1.6, 1.4, 2.2, 0.8, 0.6, 0.5, 1.2]
 
 ## Only diamond-tipped tools (edit op "diamond": true) can cut these at all.
-const NEEDS_DIAMOND := [false, false, false, false, true, false, false, false, false, false]
+const NEEDS_DIAMOND := [false, false, false, false, true, false, false, false, false, false, false, false, false]
+
+## Only the silicon harvester (edit op "harvest") can move these.
+const NEEDS_HARVESTER := [false, false, false, false, false, false, false, false, false, false, true, false, false]
 
 ## Mined samples of these go into the backpack.
-const COLLECTIBLE := [false, true, true, false, false, true, true, false, true, true]
+const COLLECTIBLE := [false, true, true, false, false, true, true, false, true, true, false, false, false]
 
 ## Backpack kilograms per mined sample.
-const WEIGHT := [0.0, 1.5, 1.0, 0.0, 0.0, 0.5, 1.2, 0.0, 0.8, 0.4]
+const WEIGHT := [0.0, 1.5, 1.0, 0.0, 0.0, 0.5, 1.2, 0.0, 0.8, 0.4, 0.0, 0.0, 0.0]

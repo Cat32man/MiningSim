@@ -43,7 +43,7 @@ var focus: Node3D
 var _chunks := {}  # Vector3i -> Chunk
 ## Densities from a save file, applied when each chunk is (re)generated. Materials never
 ## change when digging, so they are regenerated from the seed instead of saved.
-var _saved_density := {}  # Vector3i -> PackedFloat32Array
+var _saved_density := {}  # Vector3i -> [PackedFloat32Array density, PackedByteArray mats] (old saves: density only)
 var _main_gen  # main-thread generator for queries
 var _results: Array = []
 var _results_mutex := Mutex.new()
@@ -160,6 +160,8 @@ func apply_edit(op: Dictionary) -> Dictionary:
 	var mined := {}
 	if op.get("type", "") == "clear_cells":
 		return _clear_cells(op)
+	if op.get("type", "") == "harvest":
+		return _harvest(op)
 	if op.get("type", "") != "carve_sphere":
 		push_warning("Unknown terrain op: %s" % op)
 		return mined
@@ -189,6 +191,8 @@ func apply_edit(op: Dictionary) -> Dictionary:
 					continue  # bedrock
 				if Materials.NEEDS_DIAMOND[mat] and not diamond_tipped:
 					continue  # hard rock
+				if Materials.NEEDS_HARVESTER[mat]:
+					continue  # silicon sand: only the harvester's "harvest" op
 				var old := ch.density[idx]
 				if old <= -1.0:
 					continue
@@ -214,6 +218,60 @@ func apply_edit(op: Dictionary) -> Dictionary:
 					if dirty and dirty.generated:
 						_schedule_mesh(dirty, true)
 	return mined
+
+
+## Silicon harvester op: {type: "harvest", center, radius, forward}. Clears sand (both kinds)
+## in the sphere and returns {SILICON_SAND: count} for the rich sand it took; the silicon sand
+## left in a shell around the bore, behind the cutting face, turns to plain sand (loses its
+## sheen). Sand ahead keeps its shine for the next cut. Rock is untouched.
+func _harvest(op: Dictionary) -> Dictionary:
+	var center: Vector3 = op["center"]
+	var radius: float = op["radius"]
+	var shell := radius + 1.5
+	var forward: Vector3 = op.get("forward", Vector3.ZERO)
+	var taken := 0
+	var removed := 0
+	var changed := false
+	var lo := Vector3i((center - Vector3.ONE * shell).floor())
+	var hi := Vector3i((center + Vector3.ONE * shell).ceil())
+	for z in range(lo.z, hi.z + 1):
+		for y in range(lo.y, hi.y + 1):
+			for x in range(lo.x, hi.x + 1):
+				var dist := center.distance_to(Vector3(x, y, z))
+				if dist > shell:
+					continue
+				var ch: Chunk = _chunks.get(Vector3i(floori(float(x) / S), floori(float(y) / S), floori(float(z) / S)))
+				if ch == null or not ch.generated:
+					continue
+				var idx := posmod(x, S) + posmod(y, S) * S + posmod(z, S) * S * S
+				var mat := ch.mats[idx]
+				if mat != Materials.SILICON_SAND and mat != Materials.SAND:
+					continue
+				if dist <= radius and ch.density[idx] > -1.0:
+					if ch.density[idx] > 0.0:
+						removed += 1
+						if mat == Materials.SILICON_SAND:
+							taken += 1
+					ch.density[idx] = maxf(-1.0, -(1.0 - dist / radius))
+					ch.mats[idx] = Materials.SAND
+				elif mat == Materials.SILICON_SAND and (Vector3(x, y, z) - center).dot(forward) < 0.5:
+					ch.mats[idx] = Materials.SAND
+				else:
+					continue
+				ch.modified = true
+				changed = true
+	if removed > 0:
+		carved.emit(center, removed)
+	if changed:
+		var cl := world_to_chunk(Vector3(lo) - Vector3.ONE)
+		var ch_hi := world_to_chunk(Vector3(hi) + Vector3.ONE)
+		for cz in range(cl.z, ch_hi.z + 1):
+			for cy in range(cl.y, ch_hi.y + 1):
+				for cx in range(cl.x, ch_hi.x + 1):
+					var dirty: Chunk = _chunks.get(Vector3i(cx, cy, cz))
+					if dirty and dirty.generated:
+						_schedule_mesh(dirty, true)
+	return {Materials.SILICON_SAND: taken} if taken > 0 else {}
 
 
 ## Shredder op: {type: "clear_cells", cells: [Vector3i], mat: int}. Empties exactly those
@@ -259,7 +317,7 @@ func export_modified() -> Dictionary:
 	var out := _saved_density.duplicate()
 	for ch: Chunk in _chunks.values():
 		if ch.generated and ch.modified:
-			out[ch.cpos] = ch.density
+			out[ch.cpos] = [ch.density, ch.mats]  # mats too: harvested sand stays dull
 	return out
 
 
@@ -311,7 +369,7 @@ func scan_ores(center: Vector3, radius: float) -> Array:
 func zone_name(p: Vector3) -> String:
 	if _main_gen == null:
 		_main_gen = Generator.new(world_seed)
-	return ["Normal rock", "Hard rock", "Fire caves"][biome_at(p)]
+	return ["Normal rock", "Hard rock", "Fire caves", "Silicon caves"][biome_at(p)]
 
 
 func biome_at(p: Vector3) -> int:
@@ -417,8 +475,14 @@ func _apply_results() -> void:
 			continue
 		if r["kind"] == "gen":
 			ch.density = r["density"]
+			ch.mats = r["mats"]
 			if _saved_density.has(ch.cpos):
-				ch.density = _saved_density[ch.cpos]
+				var saved = _saved_density[ch.cpos]
+				if saved is Array:
+					ch.density = saved[0]
+					ch.mats = saved[1]
+				else:
+					ch.density = saved
 				_saved_density.erase(ch.cpos)
 				ch.modified = true
 				# Neighbours that meshed before this chunk loaded used freshly generated rock for
@@ -429,7 +493,6 @@ func _apply_results() -> void:
 							var n: Chunk = _chunks.get(ch.cpos + Vector3i(dx, dy, dz))
 							if n and n != ch and n.generated and n.mesh_version > 0:
 								_schedule_mesh(n, false)
-			ch.mats = r["mats"]
 			ch.generated = true
 			_schedule_mesh(ch, false)
 		else:

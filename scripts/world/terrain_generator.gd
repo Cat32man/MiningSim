@@ -15,10 +15,14 @@ const MAT_COBALT := Materials.COBALT
 const MAT_BASALT := Materials.BASALT
 const MAT_OBSIDIAN := Materials.OBSIDIAN
 const MAT_COAL := Materials.COAL
+const MAT_SILICON_SAND := Materials.SILICON_SAND
+const MAT_SAND := Materials.SAND
+const MAT_SANDSTONE := Materials.SANDSTONE
 
 const BIOME_NORMAL := 0
 const BIOME_HARD := 1
 const BIOME_FIRE := 2
+const BIOME_SILICON := 3
 
 ## Samples at or above this height are unmineable bedrock.
 const CEILING_Y := 40
@@ -57,6 +61,15 @@ const ARENA_TUNNEL_RADIUS := 2.6
 ## Diamond noise cutoff in normal rock (hard rock uses 0.66, so this is far rarer).
 const NORMAL_DIAMOND_THRESHOLD := 0.89
 
+## Silicon caves: one huge dune cavern around silicon_center(), sand floor over sandstone,
+## with two long tunnels heading back toward the spawn.
+const SILICON_RADII := Vector3(60.0, 18.0, 60.0)
+const SILICON_FLOOR := -8.0  # dune floor height relative to the centre
+const SILICON_TUNNELS := 2
+const SILICON_TUNNEL_LENGTH := 110.0
+const SILICON_TUNNEL_RADIUS := 3.2
+const SILICON_BIOME_REACH := 1.35  # ellipsoid scale where the biome's materials stop
+
 var _tunnel_a := FastNoiseLite.new()
 var _tunnel_b := FastNoiseLite.new()
 var _cavern := FastNoiseLite.new()
@@ -72,6 +85,7 @@ var _obsidian := FastNoiseLite.new()
 var _coal := FastNoiseLite.new()
 var _seed := 0
 var _arenas := {}  # Vector3i cube -> arena centre (or Vector3.INF), per generator instance
+var _silicon := Vector3.ZERO
 
 
 func _init(seed_value: int) -> void:
@@ -89,6 +103,7 @@ func _init(seed_value: int) -> void:
 	_setup(_heat, seed_value + 10, 0.012, 2)
 	_setup(_obsidian, seed_value + 11, 0.1, 2)
 	_setup(_coal, seed_value + 12, 0.07, 2)
+	_silicon = silicon_center(seed_value)
 
 
 func _setup(n: FastNoiseLite, s: int, freq: float, octaves: int) -> void:
@@ -145,6 +160,7 @@ func density(x: float, y: float, z: float) -> float:
 	d = minf(d, spawn_air + detail * 0.2 * wall_detail)
 
 	d = _arena(x, y, z, d, detail)
+	d = _silicon_caves(x, y, z, d, detail)
 
 	# Solid buffer under the bedrock ceiling.
 	d = maxf(d, y - (CEILING_Y - CEILING_BUFFER))
@@ -233,7 +249,45 @@ static func silicon_center(seed_value: int) -> Vector3:
 	return Vector3(cos(a) * dist, rng.randf_range(-170.0, -130.0), sin(a) * dist)
 
 
+# --- Silicon caves -----------------------------------------------------------------
+
+func _dune_height(x: float, z: float) -> float:
+	return _silicon.y + SILICON_FLOOR + sin(x * 0.08 + sin(z * 0.05) * 2.0) * 1.6 		+ _strata.get_noise_2d(x * 3.0, z * 3.0) * 1.4
+
+
+## Scaled distance from the silicon cavern's centre: < 1 inside, 1 at its walls.
+func _silicon_e(x: float, y: float, z: float) -> float:
+	return Vector3((x - _silicon.x) / SILICON_RADII.x, (y - _silicon.y) / SILICON_RADII.y,
+		(z - _silicon.z) / SILICON_RADII.z).length()
+
+
+func _silicon_caves(x: float, y: float, z: float, d: float, detail: float) -> float:
+	var dx := x - _silicon.x
+	var dz := z - _silicon.z
+	if absf(dx) > 200.0 or absf(dz) > 200.0 or absf(y - _silicon.y) > 80.0:
+		return d
+	var wall := (_silicon_e(x, y, z) - 1.0) * SILICON_RADII.y + detail * 1.5
+	var floor_d := _dune_height(x, z) - y
+	var air := maxf(wall, floor_d)
+	# Tunnels out toward the spawn, rising gently, so the cavern joins the cave network.
+	var home := Vector2(-_silicon.x, -_silicon.z).normalized()
+	for i in SILICON_TUNNELS:
+		var dir2 := home.rotated((float(i) - 0.5) * 0.7)
+		var start := _silicon + Vector3(dir2.x, 0.0, dir2.y) * SILICON_RADII.x * 0.8 + Vector3(0, SILICON_FLOOR + 3.0, 0)
+		var seg := Vector3(dir2.x, 0.25, dir2.y).normalized() * SILICON_TUNNEL_LENGTH
+		var rel := Vector3(x, y, z) - start
+		var t := clampf(rel.dot(seg) / seg.length_squared(), 0.0, 1.0)
+		air = minf(air, rel.distance_to(seg * t) - SILICON_TUNNEL_RADIUS + detail * 0.4)
+	return minf(d, air)
+
+
+func in_silicon(p: Vector3) -> bool:
+	return _silicon_e(p.x, p.y, p.z) < SILICON_BIOME_REACH
+
+
 func biome(x: float, y: float, z: float) -> int:
+	if _silicon_e(x, y, z) < SILICON_BIOME_REACH:
+		return BIOME_SILICON
 	var score := _biome.get_noise_3d(x, y, z) * 0.6 \
 		+ Vector2(x, z).length() / BIOME_DISTANCE_SCALE \
 		+ maxf(-y, 0.0) / BIOME_DEPTH_SCALE
@@ -246,6 +300,12 @@ func material(x: float, y: float, z: float) -> int:
 	if y >= CEILING_Y:
 		return MAT_BEDROCK
 	var b := biome(x, y, z)
+	if b == BIOME_SILICON:
+		# A deep bed of sand under the dunes, mostly the rich golden kind; sandstone around it.
+		var top := _dune_height(x, z)
+		if y < top + 1.0 and y > top - 7.0:
+			return MAT_SAND if _iron.get_noise_3d(x, y, z) > 0.45 else MAT_SILICON_SAND
+		return MAT_SANDSTONE
 	if b != BIOME_FIRE and in_arena(Vector3(x, y, z)):
 		b = BIOME_FIRE  # the whole arena is fire cave, even where its edges poke out
 	if b == BIOME_FIRE:

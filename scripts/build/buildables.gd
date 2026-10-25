@@ -14,9 +14,12 @@ const STORAGE_LARGE := "storage_large"
 const BEACON := "beacon"
 const SCAN_TABLE := "scan_table"
 const SCAN_TOWER := "scan_tower"
+const HARVESTER := "harvester"
+const CHIP_PRINTER := "chip_printer"
 
 ## Menu order, per build-menu tab.
-const ORDER := [POLE, GENERATOR, BENCH, CHARGER, STORAGE, REFINERY, STORAGE_LARGE, BEACON, SCAN_TABLE, SCAN_TOWER]
+const ORDER := [POLE, GENERATOR, BENCH, CHARGER, STORAGE, REFINERY, STORAGE_LARGE, BEACON, SCAN_TABLE, SCAN_TOWER,
+	HARVESTER, CHIP_PRINTER]
 const STRUCTURE_ORDER := ["foundation", "floor", "wall", "half_wall", "window", "door", "ramp", "ladder",
 	"catwalk", "lamp"]
 
@@ -230,6 +233,31 @@ const DEFS := {
 		"hp": 90.0,
 		"bite_radius": 0.6,
 		"script": "res://scripts/build/scan_tower.gd",
+	},
+	# Silicon caves (unlocked by finding them).
+	HARVESTER: {
+		"name": "Silicon harvester",
+		"desc": "Drive it to cut silicon from sand. Burns coal.",
+		"cost": {Items.IRON: 120, Items.STEEL: 30, Items.OBSIDIANITE: 8, Items.ELECTRUM: 40},
+		"radius": 2.6,
+		"mount": "floor",
+		"hp": 400.0,
+		"bite_radius": 2.6,
+		"requires": "silicon_found",
+		"locked_hint": "Find the silicon caves",
+		"script": "res://scripts/build/harvester.gd",
+	},
+	CHIP_PRINTER: {
+		"name": "Microchip printer",
+		"desc": "Prints microchips. 40 kW.",
+		"cost": {Items.IRON: 60, Items.STEEL: 15, Items.ELECTRUM: 30},
+		"radius": 2.0,
+		"mount": "floor",
+		"hp": 180.0,
+		"bite_radius": 2.0,
+		"requires": "silicon_found",
+		"locked_hint": "Find the silicon caves",
+		"script": "res://scripts/build/chip_printer.gd",
 	},
 	# Not in the build menu: deployed by throwing the item (G).
 	SHREDDER: {

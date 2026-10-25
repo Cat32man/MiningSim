@@ -58,6 +58,9 @@ var dagger_owned := false
 var shredder_hop := false
 ## Item ids you've ever carried: recipes show up once you've found all their materials.
 var discovered := {}
+## Been to the fire caves (boss lairs show on the scan) / the silicon caves (harvester blueprint).
+var fire_visited := false
+var silicon_found := false
 
 ## Elevator economy (M4).
 var credits := 0
@@ -128,6 +131,8 @@ func to_dict() -> Dictionary:
 		"dagger_owned": dagger_owned,
 		"shredder_hop": shredder_hop,
 		"discovered": discovered.duplicate(),
+		"fire_visited": fire_visited,
+		"silicon_found": silicon_found,
 		"credits": credits,
 		"market": market.to_dict(),
 		"blueprints": blueprints.duplicate(),
@@ -146,6 +151,9 @@ func from_dict(d: Dictionary) -> void:
 	shredder_hop = d.get("shredder_hop", false)
 	# Saves from before discovery: the starting ores count as found.
 	discovered = d.get("discovered", {Items.IRON: true, Items.ELECTRUM: true}).duplicate()
+	# Saves from before the flag: having fire-cave ore means you've been there.
+	fire_visited = d.get("fire_visited", discovered.has(Items.OBSIDIAN) or discovered.has(Items.COAL))
+	silicon_found = d.get("silicon_found", false)
 	credits = d.get("credits", 0)
 	market.from_dict(d.get("market", {}))
 	blueprints = d.get("blueprints", {}).duplicate()

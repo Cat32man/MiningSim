@@ -15,6 +15,8 @@ const COAL := "coal"
 const STEEL := "steel"
 const OBSIDIANITE := "obsidianite"
 const CROOKED_CLAW := "crooked_claw"
+const SILICON := "silicon"
+const MICROCHIP := "microchip"
 
 ## Battery energy: 20 kW for 5 minutes (10 kW lasts 10 minutes, and so on).
 const BATTERY_CAPACITY := 20.0 * 300.0  # kJ
@@ -30,6 +32,9 @@ const DEFS := {
 	# Refined (materials refinery).
 	STEEL: {"name": "Steel", "short": "St", "weight": 1.0, "stack": 50, "color": Color(0.66, 0.71, 0.78)},
 	OBSIDIANITE: {"name": "Obsidianite", "short": "Obn", "weight": 0.5, "stack": 50, "color": Color(0.6, 0.3, 0.9)},
+	# Silicon caves: silicon comes only from the harvester; microchips from the chip printer.
+	SILICON: {"name": "Silicon", "short": "Si", "weight": 0.3, "stack": 50, "color": Color(0.92, 0.78, 0.45)},
+	MICROCHIP: {"name": "Microchip", "short": "Chip", "weight": 0.1, "stack": 50, "color": Color(0.25, 0.65, 0.4)},
 	# Boss trophy: the Magma Hydra's claw, made into the crooked dagger at the bench.
 	CROOKED_CLAW: {"name": "Crooked claw", "short": "Claw", "weight": 2.0, "stack": 1, "color": Color(0.86, 0.76, 0.56)},
 	# Worn in the suit slot (kept on death).

@@ -85,6 +85,8 @@ var _clock := 0.0
 var _base_alert_t := -99.0
 const BASE_ALERT_GAP := 20.0  # seconds between "base under attack" warnings
 var _test_step := 0
+var _silicon_spot := Vector3.INF
+var _silicon_t := 0.0
 
 
 func _ready() -> void:
@@ -1026,6 +1028,15 @@ func _run_screenshot() -> void:
 			player.global_position = spot + Vector3(0, 0.4, 0)
 			player.active = false
 			player.equipment.add_stack({"id": Items.THERMAL_SUIT, "count": 1})
+		if OS.get_cmdline_user_args().has("--silicon"):
+			# Onto the dunes of the silicon caves, to drive a harvester into the sand.
+			var g = world._main_gen
+			var c: Vector3 = g.silicon_center(world.world_seed)
+			var xz := c + Vector3(18, 0, 6)
+			_silicon_spot = Vector3(xz.x, g._dune_height(xz.x, xz.z) + 1.2, xz.z)
+			print("Silicon caves at %s" % _silicon_spot)
+			player.global_position = _silicon_spot
+			player.active = false
 		if OS.get_cmdline_user_args().has("--arena"):
 			# Onto the floor of the nearest boss arena, looking across it.
 			var g = world._main_gen
@@ -1115,6 +1126,30 @@ func _run_screenshot() -> void:
 				progress.dagger_owned = true
 				player._select_tool(4)
 		_test_step = 1
+	elif _silicon_spot != Vector3.INF and _test_step == 1:
+		if world.is_ready_around(_silicon_spot) and _clock - _ready_time > 2.0:
+			var h = Buildables.make("harvester")
+			grid.add(h)
+			h.global_position = _silicon_spot + Vector3(0, -1.0, 0)
+			h.rotation.y = 0.6
+			h.fuel_inv.add(Items.COAL, 20)
+			player.active = true
+			player.enter_vehicle(h)
+			_silicon_t = 0.0
+			_test_step = 2
+	elif _silicon_spot != Vector3.INF and _test_step == 2:
+		# Drive: a few seconds digging down, then level.
+		var h = player.vehicle
+		_silicon_t += get_process_delta_time()
+		h.drive(Vector2(0, -1), get_process_delta_time(), _silicon_t < 3.0)
+		player.global_position = h.seat_position()
+		if _silicon_t > 6.0:
+			print("Harvester: %s, silicon %d, coal %d" % [h.status, h.hopper.count_of(Items.SILICON), h.fuel_inv.count_of(Items.COAL)])
+			player.camera.rotation.x = -0.35
+			_test_step = 3
+			_ready_time = _clock - 2.0
+	elif _silicon_spot != Vector3.INF and _test_step < 3:
+		pass
 	elif _shot_hit and _test_step == 1 and _clock - _ready_time > 2.75:
 		# Two pistol hits just before the capture so the numbers and flash are on screen.
 		var from: Vector3 = player.camera.global_position

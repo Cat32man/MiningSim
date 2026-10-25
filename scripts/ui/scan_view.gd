@@ -28,15 +28,17 @@ const AMBER := Color(1.0, 0.62, 0.22)
 
 const TERRAIN_SHADER := """
 shader_type spatial;
-render_mode unshaded, blend_add, cull_disabled, depth_draw_never, skip_vertex_transform;
+render_mode unshaded, blend_mix, cull_disabled, depth_draw_always, skip_vertex_transform;
 uniform vec3 sources[16];
 uniform float radii[16];
 uniform int source_count = 1;
 uniform float fade = 260.0;
 uniform vec3 view_center;
 uniform float view_radius = 80.0;
+uniform float cut_above = 10.0;  // slice off everything this far above the view centre
 uniform vec4 tint : source_color = vec4(1.0, 0.62, 0.22, 1.0);
 varying vec3 v_world;
+varying vec3 v_normal;
 varying float v_inst;
 
 float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
@@ -62,23 +64,36 @@ void vertex() {
 	float band = step(0.93, hash(vec3(floor(w.y * 0.5), floor(TIME * 6.0), 1.0)));
 	w += swim + jit + vec3(band * k * 9.0, 0.0, 0.0);
 	v_world = w;
+	v_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	v_inst = inst;
 	VERTEX = (VIEW_MATRIX * vec4(w, 1.0)).xyz;
 	NORMAL = normalize((VIEW_MATRIX * MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 }
 
 void fragment() {
+	float cut = view_center.y + cut_above;
+	if (v_world.y > cut) {
+		discard;
+	}
+	float rim = 1.0 - smoothstep(0.0, 0.6, cut - v_world.y);  // bright edge along the cut
 	float fres = pow(1.0 - abs(dot(NORMAL, VIEW)), 2.0);
 	float c = abs(fract(v_world.y / 4.0) - 0.5) * 2.0;
 	float contour = smoothstep(0.86, 1.0, c);
-	float a = 0.012 + fres * 0.13 + contour * 0.2;
+	// Solid-looking walls: lit from above, floors brightest, the far side of a wall darker.
+	vec3 n = FRONT_FACING ? v_normal : -v_normal;
+	float lit = 0.25 + 0.55 * clamp(dot(n, normalize(vec3(0.4, 1.0, 0.3))), 0.0, 1.0);
+	lit *= FRONT_FACING ? 1.0 : 0.55;
+	float a = 0.7 + contour * 0.3;
 	// Drop-outs: whole patches blink out as the signal gets worse.
 	float keep = step(v_inst * 0.9, hash(floor(v_world * 0.35) + floor(TIME * 10.0)));
 	a *= mix(1.0, keep, v_inst);
 	float edge = distance(v_world.xz, view_center.xz);
 	a *= smoothstep(view_radius, view_radius * 0.75, edge);
-	ALBEDO = mix(tint.rgb, vec3(1.0, 0.22, 0.12), v_inst * 0.8);
-	ALPHA = a;
+	vec3 col = mix(tint.rgb, vec3(1.0, 0.22, 0.12), v_inst * 0.8);
+	// Deeper is dimmer, for depth.
+	float depth = clamp((view_center.y - v_world.y) / 60.0, 0.0, 1.0);
+	ALBEDO = col * ((lit + fres * 0.4 + contour * 0.8) * (1.0 - depth * 0.55) + rim * 1.5);
+	ALPHA = clamp(a, 0.0, 1.0);
 }
 """
 

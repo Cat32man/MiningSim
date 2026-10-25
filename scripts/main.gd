@@ -814,7 +814,7 @@ func _run_selftest() -> void:
 				grid.add(ref)
 				player.backpack.add(Items.IRON, 20)
 				player.backpack.add(Items.COAL, 10)
-				ref._load_from(player.backpack)
+				ref._load_from([player.backpack])
 				ref.battery_inv.add_stack(Items.new_battery(Items.BATTERY_CAPACITY))
 				for k in 30:
 					var sat: float = ref.battery_assist(0.0, 0.5)

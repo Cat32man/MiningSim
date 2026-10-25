@@ -180,9 +180,7 @@ func ui_build(box_: VBoxContainer, player) -> void:
 	box_.add_child(UI.label(power_line() + "   ·   " + battery_line(), 14, Color(0.7, 0.7, 0.68)))
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 12)
-	buttons.add_child(UI.button("Load ingredients", func():
-		for src in player.cost_sources():  # backpack first, then containers nearby
-			_load_from(src)))
+	buttons.add_child(UI.button("Load ingredients", func(): _load_from(player.cost_sources())))
 	buttons.add_child(UI.button("Take output", func(): output_inv.move_all_to(player.backpack)))
 	box_.add_child(buttons)
 
@@ -226,14 +224,42 @@ func _select(id: String) -> void:
 	progress_t = 0.0
 
 
-## Moves the current recipe's ingredients from `src` into the input slots.
-func _load_from(src) -> void:
-	for id in RECIPES[recipe]["in"]:
-		var have: int = src.count_of(id)
-		if have <= 0:
-			continue
-		var left: int = input_inv.add(id, have)
-		src.remove(id, have - left)
+## Fills the input slots with the current recipe's ingredients in its ratio (2 iron per
+## coal for steel), as many whole batches as fit and as `sources` (backpack first, then
+## nearby containers) can cover.
+func _load_from(sources: Array) -> void:
+	var need: Dictionary = RECIPES[recipe]["in"]
+	# Slots the recipe can use: empty ones plus those already holding its ingredients.
+	var free := 0
+	for st in input_inv.slots:
+		if st == null or need.has(st["id"]):
+			free += 1
+	var have := {}
+	for id in need:
+		have[id] = input_inv.count_of(id)
+		for src in sources:
+			have[id] += src.count_of(id)
+	var batches := 0
+	while true:
+		var n := batches + 1
+		var slots := 0
+		var ok := true
+		for id in need:
+			slots += ceili(float(n * need[id]) / input_inv.max_stack(id))
+			ok = ok and have[id] >= n * need[id]
+		if not ok or slots > free:
+			break
+		batches = n
+	for id in need:
+		var short: int = batches * need[id] - input_inv.count_of(id)
+		for src in sources:
+			if short <= 0:
+				break
+			var n: int = mini(short, src.count_of(id))
+			if n > 0:
+				var left: int = input_inv.add(id, n)
+				src.remove(id, n - left)
+				short -= n - left
 
 
 func hover_text() -> String:

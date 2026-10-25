@@ -134,10 +134,21 @@ func _layout() -> Array:
 		# Rails block falls but are see-through: collision-only planes.
 		for x in [-0.97, 0.97]:
 			out.append([Vector3(0.05, 1.0, 2.0), _at(x, 0.5, 0), null, true])
+	# Walls meeting at a corner overlap there, and their tops and trims would sit in the same
+	# plane and flicker. Edges running along z sit 4 mm higher so one always wins.
+	var lift := 0.004 if SLOTS.get(build_id, "") == "edge" and _runs_along_z() else 0.0
 	for b in out:
 		b[0] *= K
 		b[1].origin *= K
+		b[1].origin.y += lift
 	return out
+
+
+## Edge keys are "e<x>,<y>,<z>" in half cells: an odd x means the edge sits between two
+## cells along x, so the wall runs along z.
+func _runs_along_z() -> bool:
+	var parts := slot_key.trim_prefix("e").split(",")
+	return parts.size() == 3 and posmod(int(parts[0]), 2) == 1
 
 
 ## Dark base strip and an orange band along the top of wall pieces.

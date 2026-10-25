@@ -1,0 +1,11 @@
+{
+	"about": "MiningSim text edits. Strings are in source form (\\n = line break). Apply with tools/apply_text_edits.py.",
+	"edits": [
+		{
+			"file": "res://scripts/base/drop_pod.gd",
+			"line": 87,
+			"original": "Hand Drill — digs fast, burns fuel.\\nCost: ",
+			"text": "Hand Drill\\nCost: "
+		}
+	]
+}

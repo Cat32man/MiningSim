@@ -180,7 +180,9 @@ func ui_build(box_: VBoxContainer, player) -> void:
 	box_.add_child(UI.label(power_line() + "   ·   " + battery_line(), 14, Color(0.7, 0.7, 0.68)))
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 12)
-	buttons.add_child(UI.button("Load ingredients", func(): _load_from(player.backpack)))
+	buttons.add_child(UI.button("Load ingredients", func():
+		for src in player.cost_sources():  # backpack first, then containers nearby
+			_load_from(src)))
 	buttons.add_child(UI.button("Take output", func(): output_inv.move_all_to(player.backpack)))
 	box_.add_child(buttons)
 

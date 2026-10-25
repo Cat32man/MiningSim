@@ -93,9 +93,15 @@ func ui_build(box_: VBoxContainer, player) -> void:
 	box_.add_child(UI.label("ELECTRUM GENERATOR", 26, Color(1.0, 0.75, 0.4)))
 	for line in _status().split("\n"):
 		box_.add_child(UI.label(line, 15))
-	var have: int = player.backpack.count_of(Items.ELECTRUM)
+	# Backpack first, then containers nearby.
+	var sources: Array = player.cost_sources()
+	var have := 0
+	for src in sources:
+		have += src.count_of(Items.ELECTRUM)
 	box_.add_child(UI.button("Load all electrum (%d)" % have,
-		func(): fuel_inv.pull_ore_from(player.backpack), have > 0))
+		func():
+			for src in sources:
+				fuel_inv.pull_ore_from(src), have > 0))
 
 
 func _status() -> String:

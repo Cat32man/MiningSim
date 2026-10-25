@@ -283,7 +283,9 @@ func _ui_cargo(box: VBoxContainer, player) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	row.add_child(UI.button("Send up", send_up, state == State.READY))
-	row.add_child(UI.button("Load all ore", func(): cargo.pull_ore_from(player.backpack), state == State.READY))
+	row.add_child(UI.button("Load all ore", func():
+		for src in player.cost_sources():  # backpack first, then containers nearby
+			cargo.pull_ore_from(src), state == State.READY))
 	box.add_child(row)
 	# Prices, two columns, with which way each last moved.
 	var grid := GridContainer.new()

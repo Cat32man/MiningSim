@@ -18,7 +18,7 @@ const OVERWEIGHT_SPEED := 2.2
 const OVERWEIGHT_JUMP := 0.6  # share of a normal jump while overweight
 const OVERWEIGHT_CLIMB := 0.4  # share of normal climb speed while overweight
 ## Building, crafting and upgrades draw from your backpack plus storage this close to you.
-const STORAGE_REACH := 15.0
+const STORAGE_REACH := 20.0
 const Flare = preload("res://scripts/items/flare.gd")
 const ShredderThrow = preload("res://scripts/items/shredder_throw.gd")
 const Materials = preload("res://scripts/world/materials.gd")
@@ -996,7 +996,7 @@ func cost_sources() -> Array:
 		out.append(pod.storage)
 	if builder:
 		for b in builder.grid.buildings:
-			if b.build_id == Buildables.STORAGE and b.global_position.distance_to(global_position) <= STORAGE_REACH:
+			if b.build_id in [Buildables.STORAGE, Buildables.STORAGE_LARGE] 					and b.global_position.distance_to(global_position) <= STORAGE_REACH:
 				out.append(b.inv)
 	return out
 

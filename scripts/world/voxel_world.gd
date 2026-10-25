@@ -341,6 +341,14 @@ func density_interp(p: Vector3) -> float:
 
 
 ## Density at a world sample (for tools and tests). Ungenerated space reads as solid.
+## Density of a cell if its chunk is loaded (dug tunnels included), else NAN.
+func known_density(p: Vector3i) -> float:
+	var ch: Chunk = _chunks.get(Vector3i(floori(float(p.x) / S), floori(float(p.y) / S), floori(float(p.z) / S)))
+	if ch == null or not ch.generated:
+		return NAN
+	return ch.density[posmod(p.x, S) + posmod(p.y, S) * S + posmod(p.z, S) * S * S]
+
+
 func density_at(p: Vector3i) -> float:
 	var ch: Chunk = _chunks.get(Vector3i(floori(float(p.x) / S), floori(float(p.y) / S), floori(float(p.z) / S)))
 	if ch == null or not ch.generated:

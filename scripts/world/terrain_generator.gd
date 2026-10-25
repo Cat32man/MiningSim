@@ -223,6 +223,16 @@ func _arena(x: float, y: float, z: float, d: float, detail: float) -> float:
 	return d
 
 
+## Where the silicon caves (next biome, not generated yet) lie: deep and far out, fixed
+## per world. The scanning table already picks up their signal.
+static func silicon_center(seed_value: int) -> Vector3:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value * 7919 + 1301
+	var a := rng.randf() * TAU
+	var dist := rng.randf_range(420.0, 520.0)
+	return Vector3(cos(a) * dist, rng.randf_range(-170.0, -130.0), sin(a) * dist)
+
+
 func biome(x: float, y: float, z: float) -> int:
 	var score := _biome.get_noise_3d(x, y, z) * 0.6 \
 		+ Vector2(x, z).length() / BIOME_DISTANCE_SCALE \

@@ -115,17 +115,26 @@ blueprints are ever *required* is still open (if so, selling is mandatory). [P: 
 Walls, floors, doors and other structural pieces, so outposts can be closed off and defended. [D]
 
 - **Pieces** [P]:
-  - Floors and foundations, 2×2 m. A foundation flattens rock under itself.
-  - Walls, 2×2 m: half-height and window variants.
+  - Floors and foundations, 3×3 m. A foundation flattens rock under itself.
+  - Walls, 3×3 m: half-height and window variants.
   - Doors: open for you, closed to bugs.
   - Ramps and stairs, ladders, catwalks with railings, pillars, ceiling panels.
   - Wall lamps: they draw a little power and keep an outpost lit.
 - **Placement** [P]:
-  - The first piece goes freely on rock. Further pieces snap to edges on a 2 m grid (Valheim/Satisfactory style).
+  - The first piece goes freely on rock. Further pieces snap to edges on a 3 m grid (Valheim/Satisfactory style).
   - Pieces may overlap rock but never bedrock.
   - R rotates; X removes with a full refund (overflow drops as a cache).
 - **Cost:** iron. Reinforced (later) variants use better materials. [P]
 - **Defence:** every piece has HP. Bugs that can't reach you or a machine chew through the nearest wall or door, and doors are weaker than walls. Repairs cost iron. Walls buy time but never make a base safe. [P]
+
+### Scanning table [D]
+
+The step between the fire caves and the next biome.
+
+- **Scanning table** (150 iron, 20 steel, 5 obsidianite, 300 electrum): [E] opens a 3D hologram map of the caves on a CRT screen, like Deep Rock's terrain scanner. Drag to turn it, right-drag or WASD to move, R/F up and down, wheel to zoom.
+- **Signal:** the map is steady within 64 m of the table. Further out it swims, tears and drops out, until it's all noise about 260 m past the steady zone.
+- **Scanning tower** (15 iron, 20 electrum, 5 diamond): a cheap relay mast. The map is steady within 48 m of each tower, so a chain of towers maps further out.
+- **Tags:** large hidden ore veins, and the signal of the **silicon caves**, the next biome. It's deep and 420–520 m out, at a fixed spot per world. The biome itself comes later.
 
 ## 7. Bugs and threat
 

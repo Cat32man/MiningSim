@@ -25,6 +25,7 @@ const PowerGrid = preload("res://scripts/build/power_grid.gd")
 const BuildController = preload("res://scripts/build/build_controller.gd")
 const BuildMenu = preload("res://scripts/ui/build_menu.gd")
 const BuildingPanel = preload("res://scripts/ui/building_panel.gd")
+const ScanView = preload("res://scripts/ui/scan_view.gd")
 const ThreatDirector = preload("res://scripts/enemies/threat_director.gd")
 const BodyMarker = preload("res://scripts/player/body_marker.gd")
 const DeathScreen = preload("res://scripts/ui/death_screen.gd")
@@ -51,6 +52,7 @@ var grid
 var builder
 var build_menu
 var building_panel
+var scan_view
 var director
 var bodies: Node3D
 var death_screen
@@ -251,6 +253,10 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	build_menu.closed.connect(_close_ui)
 	build_menu.selected.connect(func(id: String): builder.start(id); _close_ui())
 	_game.add_child(build_menu)
+	scan_view = ScanView.new()
+	scan_view.opened.connect(_open_ui)
+	scan_view.closed.connect(_close_ui)
+	_game.add_child(scan_view)
 	player.build_menu_requested.connect(func(): _open_ui(); build_menu.open(player))
 
 	building_panel = BuildingPanel.new()
@@ -382,7 +388,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _resume() -> void:
 	pause_menu.visible = false
 	get_tree().paused = false
-	if not (build_menu.visible or building_panel.visible or death_screen.visible):
+	if not (build_menu.visible or building_panel.visible or death_screen.visible or scan_view.visible):
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -1083,6 +1089,15 @@ func _run_screenshot() -> void:
 				m.craft_t = 0.6
 			_open_ui()
 			building_panel.open(m, player)
+		if OS.get_cmdline_user_args().has("--scantable"):
+			# A scanning table by the spawn with a tower out in the caves, map open.
+			var t = Buildables.make("scan_table")
+			t.position = player.global_position + Vector3(0, -0.95, -3.0)
+			grid.add(t)
+			var tw = Buildables.make("scan_tower")
+			tw.position = player.global_position + Vector3(60, -0.95, 20)
+			grid.add(tw)
+			t.interact(player)
 		if OS.get_cmdline_user_args().has("--structure"):
 			# A little hut ahead of the spawn, seen from outside with its lamp on.
 			_debug_hut(player.global_position + Vector3(0, -0.95, -5.0))
@@ -1121,7 +1136,7 @@ func _run_screenshot() -> void:
 			h.player = null  # frozen for the picture
 			h.rotation.y = atan2(d.x, d.z)
 		_test_step = 2
-	elif _clock - _ready_time > (4.0 if OS.get_cmdline_user_args().has("--boss") else 3.0):
+	elif _clock - _ready_time > (4.0 if OS.get_cmdline_user_args().has("--boss") else (10.0 if OS.get_cmdline_user_args().has("--scantable") else 3.0)):
 		var img := get_viewport().get_texture().get_image()
 		img.save_png(_screenshot_path)
 		print("Screenshot saved to ", _screenshot_path)

@@ -12,9 +12,11 @@ const SHREDDER := "shredder"
 const REFINERY := "refinery"
 const STORAGE_LARGE := "storage_large"
 const BEACON := "beacon"
+const SCAN_TABLE := "scan_table"
+const SCAN_TOWER := "scan_tower"
 
 ## Menu order, per build-menu tab.
-const ORDER := [POLE, GENERATOR, BENCH, CHARGER, STORAGE, REFINERY, STORAGE_LARGE, BEACON]
+const ORDER := [POLE, GENERATOR, BENCH, CHARGER, STORAGE, REFINERY, STORAGE_LARGE, BEACON, SCAN_TABLE, SCAN_TOWER]
 const STRUCTURE_ORDER := ["foundation", "floor", "wall", "half_wall", "window", "door", "ramp", "ladder",
 	"catwalk", "lamp"]
 
@@ -208,6 +210,26 @@ const DEFS := {
 		"requires": "bp:beacon",
 		"locked_hint": "Elevator shop",
 		"script": "res://scripts/build/beacon.gd",
+	},
+	SCAN_TABLE: {
+		"name": "Scanning table",
+		"desc": "3D map of the caves. Tags big veins.",
+		"cost": {Items.IRON: 150, Items.STEEL: 20, Items.OBSIDIANITE: 5, Items.ELECTRUM: 300},
+		"radius": 1.2,
+		"mount": "floor",
+		"hp": 160.0,
+		"bite_radius": 1.1,
+		"script": "res://scripts/build/scan_table.gd",
+	},
+	SCAN_TOWER: {
+		"name": "Scanning tower",
+		"desc": "Steadies the map near it.",
+		"cost": {Items.IRON: 15, Items.ELECTRUM: 20, Items.DIAMOND: 5},
+		"radius": 0.6,
+		"mount": "floor",
+		"hp": 90.0,
+		"bite_radius": 0.6,
+		"script": "res://scripts/build/scan_tower.gd",
 	},
 	# Not in the build menu: deployed by throwing the item (G).
 	SHREDDER: {

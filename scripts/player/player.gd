@@ -46,6 +46,9 @@ const MOUSE_SENS := 0.0025
 const CAMERA_HEIGHT := 0.7
 const CAMERA_ROLL := 0.035  # radians of lean at full strafe speed (~2°)
 const CAMERA_DIP := 0.015  # radians of forward lean at full speed
+const JUMP_DIP := 0.05  # metres the head dips as you push off
+const LAND_DIP := 0.025  # metres of head dip per m/s of fall speed on landing
+const LAND_DIP_MAX := 0.22
 const INTERACT_REACH := 2.5
 
 ## Slots: miner (1 pickaxe, 2 drill), main weapon (3 laser shotgun), offhand (4 laser pistol).
@@ -187,6 +190,8 @@ var _drill_stopping := false
 var _bob_phase := 0.0
 var _bob_amount := 0.0
 var _cam_dip := 0.0  # forward-lean part of the camera pitch (kept apart from mouse look)
+var _land_y := 0.0  # springy head offset from jumps and landings
+var _land_v := 0.0
 var _dust: CPUParticles3D
 
 
@@ -331,6 +336,7 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= _gravity * delta
 	if controls_enabled and Input.is_action_just_pressed("jump") and is_on_floor():
 		velocity.y = JUMP_VELOCITY * (OVERWEIGHT_JUMP if is_overweight() else 1.0)
+		_land_v -= JUMP_DIP * 12.0
 
 	var input := Vector2.ZERO
 	if controls_enabled:
@@ -342,7 +348,11 @@ func _physics_process(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, dir.x * speed, speed * 10.0 * delta)
 	velocity.z = move_toward(velocity.z, dir.z * speed, speed * 10.0 * delta)
 	_climb(delta)
+	var was_floor := is_on_floor()
+	var fall_speed := -velocity.y
 	move_and_slide()
+	if is_on_floor() and not was_floor and fall_speed > 1.5:
+		_land_v -= minf(fall_speed * LAND_DIP, LAND_DIP_MAX) * 12.0
 
 	_record_safe_spot(delta)
 
@@ -1452,7 +1462,10 @@ func _animate_tool(delta: float) -> void:
 ## strafe, a small dip when going forward.
 func _animate_camera(delta: float) -> void:
 	var head := Vector3(sin(_bob_phase) * 0.018, -absf(cos(_bob_phase)) * 0.03, 0.0) * _bob_amount
-	camera.position = Vector3(head.x, CAMERA_HEIGHT + head.y, 0.0)
+	# Jump/landing dip: a damped spring pulling the head back to rest.
+	_land_v += (-_land_y * 180.0 - _land_v * 16.0) * delta
+	_land_y = clampf(_land_y + _land_v * delta, -LAND_DIP_MAX, 0.08)
+	camera.position = Vector3(head.x, CAMERA_HEIGHT + head.y + _land_y, 0.0)
 	var local: Vector3 = global_basis.inverse() * velocity
 	var k := 0.0 if climbing else 1.0
 	var roll := -clampf(local.x / SPRINT_SPEED, -1.0, 1.0) * CAMERA_ROLL * k

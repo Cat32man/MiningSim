@@ -217,7 +217,7 @@ const DEFS := {
 	SCAN_TABLE: {
 		"name": "Scanning table",
 		"desc": "3D map of the caves. Tags big veins.",
-		"cost": {Items.IRON: 150, Items.STEEL: 20, Items.OBSIDIANITE: 5, Items.ELECTRUM: 300},
+		"cost": {Items.IRON: 150, Items.STEEL: 20, Items.MICROCHIP: 5, Items.ELECTRUM: 300},
 		"radius": 1.2,
 		"mount": "floor",
 		"hp": 160.0,

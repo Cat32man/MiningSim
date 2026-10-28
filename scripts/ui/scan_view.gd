@@ -370,9 +370,19 @@ func _build_marks() -> void:
 			_tag(t.global_position + Vector3(0, 6, 0), "▲ TOWER", Color(1.0, 0.75, 0.4), 22)
 	if player.pod:
 		_tag(player.pod.global_position + Vector3(0, 6, 0), "DROP POD", Color(1.0, 0.72, 0.3), 24)
-	var si: Vector3 = Generator.silicon_center(_seed)
-	_tag(si, "◇ SILICON CAVES\n%d m" % roundi(si.distance_to(table.global_position)), Color(0.55, 0.85, 1.0), 30)
-	_beam(si, Color(0.55, 0.85, 1.0))
+	var next := _next_biome()
+	if not next.is_empty():
+		_tag(next[0], "◇ %s\n%d m" % [next[1], roundi(next[0].distance_to(table.global_position))], Color(0.55, 0.85, 1.0), 30)
+		_beam(next[0], Color(0.55, 0.85, 1.0))
+
+
+## The first biome you haven't been to yet: [position, name], or [] when there's none left.
+## New biomes go on the end of this list.
+func _next_biome() -> Array:
+	var p = player.progress
+	if p == null or not p.silicon_found:
+		return [Generator.silicon_center(_seed), "SILICON CAVES"]
+	return []
 
 
 func _tag(at: Vector3, text: String, color: Color, size: int) -> Label3D:

@@ -310,7 +310,7 @@ func update_state(s: Dictionary) -> void:
 	_weapon.label_settings.font_color = Color(1.0, 0.45, 0.35) if s["overheated"] else TEXT
 	_threat.text = "Threat: " + String(s["threat"])
 	var hp: float = s["health"]
-	_health_bar.value = hp / MAX_HEALTH_DISPLAY
+	_health_bar.value = hp / maxf(s["max_health"] / (0.5 if s["shaken"] > 0.0 else 1.0), MAX_HEALTH_DISPLAY)
 	_health_value.text = "%d / %d%s" % [roundi(hp), roundi(s["max_health"]), "  shaken" if s["shaken"] > 0.0 else ""]
 	_drill_label.text = "HAND DRILL" if owned else "HAND DRILL — build at pod"
 

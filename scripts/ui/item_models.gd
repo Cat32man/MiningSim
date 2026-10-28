@@ -35,6 +35,18 @@ static func make(key: String) -> Node3D:
 			return _steel()
 		"obsidianite":
 			return _crystal(Color(0.6, 0.3, 0.9), 0.18, 6, 1.6)
+		"armor":
+			return _armor()
+		"medgel":
+			return _medgel()
+		"pistol":
+			return _blaster(Color(0.4, 0.85, 1.0), 0.7)
+		"shotgun":
+			return _blaster(Color(1.0, 0.55, 0.2), 1.0)
+		"heatsink":
+			return _heatsink()
+		"cell":
+			return _cell()
 	var root := Node3D.new()
 	_box(root, Vector3(0.4, 0.3, 0.3), Vector3.ZERO, _mat(Color(0.5, 0.42, 0.3)))
 	return root
@@ -173,6 +185,69 @@ static func _suit() -> Node3D:
 		arm.rotation.z = 0.25 * signf(x)
 		_cyl(root, 0.075, 0.075, 0.06, Vector3(x * 1.12, -0.2, 0), foil)  # cuffs
 	_box(root, Vector3(0.4, 0.05, 0.42), Vector3(0, -0.12, 0), foil)  # belt
+	return root
+
+
+## Suit armor: a chest plate with shoulder guards and a glowing seam.
+static func _armor() -> Node3D:
+	var root := Node3D.new()
+	var plate := _mat(Color(0.55, 0.58, 0.62), 0.8, 0.3)
+	var dark := _mat(Color(0.18, 0.18, 0.2), 0.6, 0.5)
+	_box(root, Vector3(0.5, 0.5, 0.14), Vector3(0, 0, 0), plate)
+	_box(root, Vector3(0.36, 0.16, 0.16), Vector3(0, -0.3, 0), plate)  # belly plate
+	for x in [-0.33, 0.33]:
+		var s := _box(root, Vector3(0.22, 0.1, 0.24), Vector3(x, 0.24, 0), plate)
+		s.rotation.z = -0.35 * signf(x)
+	_box(root, Vector3(0.04, 0.44, 0.02), Vector3(0, 0.0, 0.075), _glow(Color(0.45, 0.85, 1.0), 2.0))
+	_box(root, Vector3(0.52, 0.04, 0.16), Vector3(0, -0.2, 0), dark)
+	return root
+
+
+## Med-gel: a glass vial of glowing green gel with steel caps.
+static func _medgel() -> Node3D:
+	var root := Node3D.new()
+	var steel := _mat(Color(0.6, 0.62, 0.66), 0.8, 0.3)
+	_cyl(root, 0.11, 0.11, 0.42, Vector3.ZERO, _glow(Color(0.35, 1.0, 0.55), 1.8))
+	_cyl(root, 0.13, 0.13, 0.08, Vector3(0, 0.24, 0), steel)
+	_cyl(root, 0.13, 0.13, 0.08, Vector3(0, -0.24, 0), steel)
+	_box(root, Vector3(0.05, 0.3, 0.05), Vector3(0.11, 0, 0.06), _mat(Color(0.9, 0.9, 0.9), 0.1, 0.4))  # label
+	root.rotation.z = 0.35
+	return root
+
+
+## A laser blaster; `size` 0.7 for the pistol, 1.0 for the shotgun.
+static func _blaster(glow: Color, size: float) -> Node3D:
+	var root := Node3D.new()
+	var body := _mat(Color(0.25, 0.26, 0.28), 0.7, 0.4)
+	_box(root, Vector3(0.7, 0.16, 0.12) * Vector3(size, 1, 1), Vector3(0, 0, 0), body)
+	var grip := _box(root, Vector3(0.1, 0.24, 0.1), Vector3(-0.18 * size, -0.17, 0), body)
+	grip.rotation.z = 0.25
+	_cyl(root, 0.045, 0.045, 0.2, Vector3(0.42 * size, 0.0, 0), body).rotation.z = PI / 2
+	for i in 3:  # glowing coils
+		_cyl(root, 0.07, 0.07, 0.03, Vector3((0.05 + i * 0.09) * size, 0.0, 0), _glow(glow, 2.5)).rotation.z = PI / 2
+	root.rotation.y = -0.4
+	return root
+
+
+## Pistol heatsink: a finned block with a cold blue core.
+static func _heatsink() -> Node3D:
+	var root := Node3D.new()
+	var alu := _mat(Color(0.75, 0.77, 0.8), 0.8, 0.35)
+	_box(root, Vector3(0.4, 0.12, 0.3), Vector3(0, -0.12, 0), alu)
+	for i in 6:
+		_box(root, Vector3(0.03, 0.26, 0.3), Vector3(-0.17 + i * 0.068, 0.07, 0), alu)
+	_box(root, Vector3(0.36, 0.04, 0.04), Vector3(0, -0.12, 0.16), _glow(Color(0.4, 0.85, 1.0), 2.0))
+	return root
+
+
+## Shotgun cell: a fat orange energy canister.
+static func _cell() -> Node3D:
+	var root := Node3D.new()
+	var shell := _mat(Color(0.22, 0.22, 0.24), 0.7, 0.4)
+	_cyl(root, 0.15, 0.15, 0.4, Vector3.ZERO, shell)
+	for y in [-0.1, 0.0, 0.1]:
+		_cyl(root, 0.155, 0.155, 0.04, Vector3(0, y, 0), _glow(Color(1.0, 0.55, 0.2), 2.2))
+	_cyl(root, 0.06, 0.06, 0.06, Vector3(0, 0.23, 0), _mat(Color(0.7, 0.7, 0.72), 0.8, 0.3))
 	return root
 
 

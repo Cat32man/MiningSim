@@ -17,6 +17,8 @@ signal boss_gone(boss: Node3D, killed: bool)
 
 const Bug = preload("res://scripts/enemies/bug.gd")
 const Hydra = preload("res://scripts/enemies/hydra.gd")
+const Arbiter = preload("res://scripts/enemies/arbiter.gd")
+const Seal = preload("res://scripts/world/seal.gd")
 const Sfx = preload("res://scripts/audio/sfx.gd")
 
 const REGION := 32.0
@@ -60,6 +62,7 @@ var boss: Node3D
 var bosses_defeated := {}  # lair key -> true
 var _boss_cd := 0.0
 var _arena_light: OmniLight3D
+var _seal_node: Node3D
 var _arena_t := 0.0
 var _timer := 20.0
 var wave_cd := 0.0  # seconds until the next wave or raid is allowed (saved)
@@ -247,6 +250,8 @@ func _tick_boss(dt: float) -> void:
 	var gen = world._main_gen if world else null
 	var arena: Vector3 = gen.arena_for(player.global_position) if gen else Vector3.INF
 	_update_arena_light(arena)
+	if gen:
+		_update_seal(gen)
 	if boss:
 		# Run far enough from its arena and it goes back to sleep (it'll be there next time).
 		var home: Vector3 = boss.arena_center if boss.arena_center != Vector3.INF else boss.global_position
@@ -258,7 +263,11 @@ func _tick_boss(dt: float) -> void:
 			b.queue_free()
 		return
 	_boss_cd -= dt
-	if _boss_cd > 0.0 or arena == Vector3.INF or not player.active or player.health <= 0.0:
+	if _boss_cd > 0.0 or not player.active or player.health <= 0.0:
+		return
+	if gen and _try_arbiter(gen):
+		return
+	if arena == Vector3.INF:
 		return
 	var key := lair_key(arena)
 	if bosses_defeated.has(key):
@@ -295,6 +304,48 @@ func _update_arena_light(arena: Vector3) -> void:
 	_arena_light.global_position = arena + Vector3(0, 3.0, 0)
 	_arena_t += get_process_delta_time()
 	_arena_light.light_energy = 1.1 + 0.15 * sin(_arena_t * 1.7) + 0.08 * sin(_arena_t * 5.3)
+
+
+## THE ARBITER wakes when you step into the seal chamber (until you've beaten it once),
+## rising in front of the Seal.
+func _try_arbiter(gen) -> bool:
+	if bosses_defeated.has("arbiter"):
+		return false
+	var c: Vector3 = gen._seal
+	var rel: Vector3 = player.global_position - c
+	if Vector2(rel.x, rel.z).length() > gen.SEAL_RADII.x - 3.0 or absf(rel.y - gen.SEAL_FLOOR) > 6.0:
+		return false
+	var a := spawn_arbiter(c + gen._seal_dir * 8.0 + Vector3(0, gen.SEAL_FLOOR + 0.7, 0))
+	a.arena_center = c + Vector3(0, gen.SEAL_FLOOR, 0)
+	a.arena_radius = gen.SEAL_RADII.x - 2.5
+	a.seal_point = gen.seal_door(gen._seed)
+	return true
+
+
+func spawn_arbiter(at: Vector3) -> Node3D:
+	var a := Arbiter.new()
+	a.player = player
+	a.director = self
+	add_child(a)
+	a.global_position = at
+	a.died.connect(_on_boss_died)
+	boss = a
+	boss_appeared.emit(a)
+	return a
+
+
+## The sealed door only exists while you're near it.
+func _update_seal(gen) -> void:
+	var near: bool = player.global_position.distance_to(gen._seal) < 100.0
+	if near and _seal_node == null:
+		_seal_node = Seal.new()
+		add_child(_seal_node)
+		var door: Vector3 = gen.seal_door(gen._seed)
+		_seal_node.global_position = door
+		_seal_node.look_at(door - gen._seal_dir, Vector3.UP)
+	elif not near and _seal_node and player.global_position.distance_to(gen._seal) > 120.0:
+		_seal_node.queue_free()
+		_seal_node = null
 
 
 func spawn_boss(at: Vector3, key: String) -> Node3D:

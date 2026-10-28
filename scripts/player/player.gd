@@ -421,7 +421,8 @@ func _process(delta: float) -> void:
 	_since_hit += delta
 	shaken_time = maxf(shaken_time - delta, 0.0)
 	if health > 0.0 and _since_hit >= REGEN_DELAY:
-		health = minf(health + REGEN_PER_SEC * delta, max_health())
+		var regen: float = progress.combat_stat("regen") if progress else REGEN_PER_SEC
+		health = minf(health + regen * delta, max_health())
 	_tap_hold("flare", _f_state, delta, throw_flare,
 		func(): flashlight.visible = not flashlight.visible)
 	_scan_cd = maxf(_scan_cd - delta, 0.0)
@@ -465,7 +466,8 @@ func _select_tool(t: Tool) -> void:
 # --- Health -------------------------------------------------------------------
 
 func max_health() -> float:
-	return MAX_HEALTH * (0.5 if shaken_time > 0.0 else 1.0)
+	var base: float = progress.combat_stat("armor") if progress else MAX_HEALTH
+	return base * (0.5 if shaken_time > 0.0 else 1.0)
 
 
 func take_damage(amount: float, _from: Vector3) -> void:
@@ -1147,6 +1149,22 @@ func scan() -> void:
 						var beaten: bool = director.bosses_defeated.has(director.lair_key(lair))
 						_scan_marker("%s\n%d m" % ["LAIR (cleared)" if beaten else "LAIR", roundi(lair.distance_to(global_position))],
 							lair, Color(0.7, 0.6, 0.55) if beaten else Color(1.0, 0.35, 0.2), 30)
+	# The Seal (THE ARBITER's chamber), once you've reached the silicon caves.
+	if director and world._main_gen and progress and progress.silicon_found:
+		var door: Vector3 = world._main_gen.seal_door(world.world_seed)
+		if door.distance_to(global_position) < 300.0:
+			var beaten: bool = director.bosses_defeated.has("arbiter")
+			_scan_marker("%s
+%d m" % ["THE SEAL" if not beaten else "THE SEAL (quiet)", roundi(door.distance_to(global_position))],
+				door, Color(0.4, 1.0, 0.55) if not beaten else Color(0.6, 0.7, 0.6), 30)
+	# The Seal (THE ARBITER's chamber), once you've reached the silicon caves.
+	if director and world._main_gen and progress and progress.silicon_found:
+		var door: Vector3 = world._main_gen.seal_door(world.world_seed)
+		if door.distance_to(global_position) < 300.0:
+			var quiet: bool = director.bosses_defeated.has("arbiter")
+			_scan_marker("%s
+%d m" % ["THE SEAL (quiet)" if quiet else "THE SEAL", roundi(door.distance_to(global_position))],
+				door, Color(0.6, 0.7, 0.6) if quiet else Color(0.4, 1.0, 0.55), 30)
 	# Your Shredders, at any range, with what they're up to.
 	if builder and builder.grid:
 		for b in builder.grid.buildings:
@@ -1264,7 +1282,7 @@ func _update_hud() -> void:
 		"heat": weapons.heat,
 		"overheated": weapons.overheated,
 		"charges": weapons.charges,
-		"charges_max": weapons.SHOTGUN_MAX,
+		"charges_max": weapons.max_charges(),
 		"threat": threat_label,
 	})
 	var prompt := ""

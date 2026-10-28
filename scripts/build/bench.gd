@@ -4,6 +4,7 @@ extends "res://scripts/build/building.gd"
 
 const Sfx = preload("res://scripts/audio/sfx.gd")
 const RecipeGrid = preload("res://scripts/ui/recipe_grid.gd")
+const Progress = preload("res://scripts/progression/progress.gd")
 
 const DEMAND_KW := 15.0
 
@@ -69,6 +70,13 @@ const RECIPES := {
 	# Tiered: cost and name come from progress (see _recipe()).
 	"shredder_reach": {"model": "shredder_up", "name": "Shredder reach", "track": "reach", "time": 10.0, "unit": "m"},
 	"shredder_rate": {"model": "shredder_up", "name": "Shredder rate", "track": "rate", "time": 10.0, "unit": "ore/s"},
+	# Combat tracks (progress.COMBAT_TRACKS has the names, stats and costs).
+	"combat_armor": {"model": "armor", "combat": "armor", "time": 15.0},
+	"combat_regen": {"model": "medgel", "combat": "regen", "time": 12.0},
+	"combat_pistol": {"model": "pistol", "combat": "pistol", "time": 12.0},
+	"combat_cooling": {"model": "heatsink", "combat": "cooling", "time": 10.0},
+	"combat_shotgun": {"model": "shotgun", "combat": "shotgun", "time": 12.0},
+	"combat_cells": {"model": "cell", "combat": "cells", "time": 10.0},
 }
 
 const ROMAN := ["I", "II", "III", "IV", "V"]
@@ -129,6 +137,10 @@ func power_tick(dt: float, satisfaction: float, _load: float) -> void:
 		if r.has("upgrade"):
 			if grid and grid.progress:
 				grid.progress.set(r["upgrade"], true)
+		elif r.has("combat"):
+			if grid and grid.progress:
+				var ct: Dictionary = grid.progress.combat_tiers
+				ct[r["combat"]] = ct.get(r["combat"], 1) + 1
 		elif r.has("track"):
 			if grid and grid.progress:
 				var t: Dictionary = grid.progress.shredder_tiers
@@ -180,7 +192,7 @@ func _entries(player) -> Array:
 		out.append({"id": id, "name": r["name"], "desc": "%s  (%s)" % [r["desc"], Items.describe(r["cost"])],
 			"cost": "%s · %ds" % [RecipeGrid.short_cost(r["cost"]), roundi(r["time"])], "model": r["model"],
 			"state": state, "progress": craft_t if busy else 0.0,
-			"tag": "UPGRADE" if r.has("upgrade") or r.has("track") else ""})
+			"tag": "UPGRADE" if r.has("upgrade") or r.has("track") or r.has("combat") else ""})
 	return out
 
 
@@ -199,7 +211,7 @@ static func available(id: String, progress) -> bool:
 	var r := _recipe(id, progress)
 	if r.has("upgrade") and progress.get(r["upgrade"]):
 		return false
-	if r.has("track") and r["cost"].is_empty():
+	if (r.has("track") or r.has("combat")) and r["cost"].is_empty():
 		return false  # maxed
 	if r.has("requires") and not progress.get(r["requires"]):
 		return false
@@ -218,6 +230,8 @@ static func available_names(progress) -> Dictionary:
 ## A recipe with tiered upgrades resolved: "Shredder reach II", its next cost and stat.
 static func _recipe(id: String, progress) -> Dictionary:
 	var r: Dictionary = RECIPES[id].duplicate()
+	if r.has("combat"):
+		return _combat_recipe(r, progress)
 	if not r.has("track"):
 		return r
 	r["cost"] = {}
@@ -231,6 +245,22 @@ static func _recipe(id: String, progress) -> Dictionary:
 		var stats: Array = progress.SHREDDER_STATS[track]
 		r["name"] = "%s %s" % [r["name"], ROMAN[tier]]
 		r["desc"] = "%s → %s %s" % [str(stats[tier - 1]), str(stats[tier]), r["unit"]]
+	return r
+
+
+static func _combat_recipe(r: Dictionary, progress) -> Dictionary:
+	var track: Dictionary = Progress.COMBAT_TRACKS[r["combat"]]
+	r["name"] = track["name"]
+	r["cost"] = {}
+	r["desc"] = "Maxed"
+	if progress == null:
+		return r
+	var tier: int = progress.combat_tiers.get(r["combat"], 1)
+	r["cost"] = progress.combat_next_cost(r["combat"])
+	if not r["cost"].is_empty():
+		var stats: Array = track["stats"]
+		r["name"] = "%s %s" % [track["name"], ROMAN[tier]]
+		r["desc"] = "%s → %s %s" % [str(stats[tier - 1]), str(stats[tier]), track["unit"]]
 	return r
 
 

@@ -10,7 +10,7 @@ static var _cache := {}
 static func preload_all() -> void:
 	for n in ["hum", "drill", "pick", "step", "pistol", "shotgun", "overheat", "chitter", "bug_hurt",
 			"bug_die", "bite", "gnaw", "break", "swarm_warn", "roar", "spit", "slash", "hurt", "flare", "flare_loop", "scan", "place", "click", "rig", "ambience",
-			"drip", "deposit", "death", "empty"]:
+			"drip", "deposit", "death", "empty", "charge", "dash", "clang", "warp"]:
 		stream(n)
 
 
@@ -183,6 +183,27 @@ static func _make(n: String) -> AudioStreamWAV:
 		"death":  # low falling tone
 			return _gen(1.2, func(t, _i, _r):
 				return 0.4 * sin(TAU * lerpf(220.0, 55.0, t / 1.2) * t) * exp(-t * 2.0))
+		"charge":  # energy blades powering up: rising electric whine with a buzz
+			return _gen(0.8, func(t, _i, _r):
+				var f: float = lerpf(180.0, 900.0, t / 0.8)
+				var buzz: float = signf(sin(TAU * f * 0.5 * t)) * 0.08
+				return (0.3 * sin(TAU * f * t) + buzz) * minf(t * 8.0, 1.0) * (0.6 + 0.4 * t / 0.8))
+		"dash":  # thruster burst: roaring whoosh with a falling zap
+			var dn := _noise(0.5, 0.55, 83)
+			return _gen(0.5, func(t, i, _r):
+				return dn[i] * exp(-t * 6.0) * minf(t * 60.0, 1.0) * 1.1 					+ 0.25 * sin(TAU * lerpf(1400.0, 300.0, t / 0.5) * t) * exp(-t * 7.0))
+		"clang":  # blade on armour: bright metal ring
+			var cn := _noise(0.4, 0.9, 89)
+			return _gen(0.4, func(t, i, _r):
+				return cn[i] * exp(-t * 50.0) + 0.3 * sin(TAU * 1180.0 * t) * exp(-t * 9.0) 					+ 0.2 * sin(TAU * 1730.0 * t) * exp(-t * 12.0) + 0.15 * sin(TAU * 2950.0 * t) * exp(-t * 16.0))
+		"warp":  # it phases out: rising sweep into a hollow thump
+			return _gen(1.4, func(t, _i, _r):
+				var sweep: float = 0.3 * sin(TAU * lerpf(120.0, 2400.0, pow(minf(t / 1.1, 1.0), 2.0)) * t) * minf(t * 4.0, 1.0)
+				var thump: float = 0.0
+				if t > 1.1:
+					thump = 0.6 * sin(TAU * 55.0 * (t - 1.1)) * exp(-(t - 1.1) * 12.0)
+					sweep *= exp(-(t - 1.1) * 30.0)
+				return sweep + thump)
 		_:  # "empty": dry click when out of charges
 			return _gen(0.05, func(t, _i, _r): return 0.3 * sin(TAU * 300.0 * t) * exp(-t * 80.0))
 

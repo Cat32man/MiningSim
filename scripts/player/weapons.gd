@@ -52,10 +52,10 @@ func _ready() -> void:
 
 func tick(dt: float) -> void:
 	_cd = maxf(_cd - dt, 0.0)
-	heat = maxf(heat - PISTOL_COOL_PER_SEC * dt, 0.0)
+	heat = maxf(heat - _stat("cooling", PISTOL_COOL_PER_SEC * 100.0) / 100.0 * dt, 0.0)
 	if overheated and heat <= 0.0:
 		overheated = false
-	if charges < SHOTGUN_MAX:
+	if charges < max_charges():
 		_regen_t += dt
 		if _regen_t >= SHOTGUN_REGEN:
 			_regen_t = 0.0
@@ -71,7 +71,17 @@ func tick(dt: float) -> void:
 
 
 func refill() -> void:
-	charges = SHOTGUN_MAX
+	charges = max_charges()
+
+
+func max_charges() -> int:
+	return roundi(_stat("cells", SHOTGUN_MAX))
+
+
+## A combat upgrade's current stat (progress.COMBAT_TRACKS), or `base` without progress.
+func _stat(track: String, base: float) -> float:
+	var p = player.progress if player else null
+	return p.combat_stat(track) if p else base
 
 
 ## Swaps the placeholder shotgun for the artist's model (assets/weapons/shotgun), authored in
@@ -129,7 +139,7 @@ func fire_pistol() -> void:
 		heat = 1.0
 		overheated = true
 		Sfx.play("overheat", player, -2.0)
-	_shoot(_pistol_muzzle, PISTOL_SPREAD, PISTOL_DAMAGE, Color(0.4, 0.85, 1.0), 0.012)
+	_shoot(_pistol_muzzle, PISTOL_SPREAD, _stat("pistol", PISTOL_DAMAGE), Color(0.4, 0.85, 1.0), 0.012)
 	Sfx.play("pistol", player, -3.0, randf_range(0.95, 1.05))
 	_kick = 0.6
 	_muzzle_flash(_pistol_muzzle, Color(0.4, 0.85, 1.0))
@@ -146,7 +156,7 @@ func fire_shotgun() -> void:
 	_cd = SHOTGUN_COOLDOWN
 	charges -= 1
 	for i in SHOTGUN_PELLETS:
-		_shoot(_shotgun_muzzle, SHOTGUN_SPREAD, SHOTGUN_DAMAGE, Color(1.0, 0.55, 0.2), 0.008)
+		_shoot(_shotgun_muzzle, SHOTGUN_SPREAD, _stat("shotgun", SHOTGUN_DAMAGE), Color(1.0, 0.55, 0.2), 0.008)
 	Sfx.play("shotgun", player, -1.0, randf_range(0.95, 1.05))
 	_kick = 1.0
 	_muzzle_flash(_shotgun_muzzle, Color(1.0, 0.55, 0.2))

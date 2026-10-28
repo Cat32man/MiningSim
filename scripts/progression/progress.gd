@@ -70,6 +70,51 @@ var cosmetics := {}  # slot ("cable", "lamp") -> chosen style id
 var owned_cosmetics := {}  # style id -> true
 var tiers := {"speed": 1, "size": 1, "fuel": 1}
 var shredder_tiers := {"reach": 1, "rate": 1}
+var combat_tiers := {}  # COMBAT_TRACKS key -> tier (missing = 1)
+
+
+## Combat upgrades (bench). Each track's stat per tier and the cost to reach the next one;
+## costs climb through the materials you find: iron/electrum, steel/cobalt, obsidianite,
+## then microchips and the Arbiter's plating.
+const COMBAT_TRACKS := {
+	"armor": {"name": "Suit armor", "unit": "HP", "stats": [100.0, 125.0, 150.0, 185.0, 225.0], "costs": [
+		{Items.IRON: 30, Items.ELECTRUM: 10},
+		{Items.STEEL: 10, Items.COBALT: 8},
+		{Items.STEEL: 20, Items.OBSIDIANITE: 1},
+		{Items.ADVANCED_PLATING: 1, Items.MICROCHIP: 4, Items.STEEL: 20}]},
+	"regen": {"name": "Med-gel", "unit": "HP/s", "stats": [4.0, 6.0, 9.0, 13.0], "costs": [
+		{Items.ELECTRUM: 25, Items.DIAMOND: 2},
+		{Items.COBALT: 10, Items.STEEL: 6},
+		{Items.MICROCHIP: 2, Items.DIAMOND: 8}]},
+	"pistol": {"name": "Pistol power", "unit": "dmg", "stats": [14.0, 18.0, 23.0, 30.0, 38.0], "costs": [
+		{Items.IRON: 25, Items.ELECTRUM: 15},
+		{Items.STEEL: 6, Items.DIAMOND: 3},
+		{Items.COBALT: 12, Items.OBSIDIANITE: 1},
+		{Items.MICROCHIP: 3, Items.OBSIDIANITE: 2}]},
+	"cooling": {"name": "Pistol cooling", "unit": "%/s", "stats": [45.0, 65.0, 90.0], "costs": [
+		{Items.IRON: 20, Items.ELECTRUM: 20},
+		{Items.COBALT: 10, Items.STEEL: 5}]},
+	"shotgun": {"name": "Shotgun power", "unit": "dmg/pellet", "stats": [7.0, 9.0, 11.5, 15.0, 19.0], "costs": [
+		{Items.IRON: 30, Items.ELECTRUM: 15},
+		{Items.STEEL: 8, Items.DIAMOND: 4},
+		{Items.COBALT: 14, Items.OBSIDIANITE: 1},
+		{Items.MICROCHIP: 3, Items.OBSIDIANITE: 2}]},
+	"cells": {"name": "Shotgun cells", "unit": "charges", "stats": [12.0, 16.0, 20.0, 26.0], "costs": [
+		{Items.IRON: 30, Items.ELECTRUM: 20},
+		{Items.STEEL: 8, Items.COBALT: 6},
+		{Items.OBSIDIANITE: 1, Items.DIAMOND: 8}]},
+}
+
+
+func combat_stat(track: String) -> float:
+	return COMBAT_TRACKS[track]["stats"][combat_tiers.get(track, 1) - 1]
+
+
+## Empty when the track is maxed.
+func combat_next_cost(track: String) -> Dictionary:
+	var costs: Array = COMBAT_TRACKS[track]["costs"]
+	var t: int = combat_tiers.get(track, 1)
+	return costs[t - 1] if t - 1 < costs.size() else {}
 
 
 func stat(track: String) -> float:
@@ -138,7 +183,8 @@ func to_dict() -> Dictionary:
 		"blueprints": blueprints.duplicate(),
 		"cosmetics": cosmetics.duplicate(),
 		"owned_cosmetics": owned_cosmetics.duplicate(),
-		"tiers": tiers.duplicate(), "shredder_tiers": shredder_tiers.duplicate()}
+		"tiers": tiers.duplicate(), "shredder_tiers": shredder_tiers.duplicate(),
+		"combat_tiers": combat_tiers.duplicate()}
 
 
 func from_dict(d: Dictionary) -> void:
@@ -159,6 +205,11 @@ func from_dict(d: Dictionary) -> void:
 	blueprints = d.get("blueprints", {}).duplicate()
 	cosmetics = d.get("cosmetics", {}).duplicate()
 	owned_cosmetics = d.get("owned_cosmetics", {}).duplicate()
+	combat_tiers = {}
+	var ct: Dictionary = d.get("combat_tiers", {})
+	for track in COMBAT_TRACKS:
+		if ct.has(track):
+			combat_tiers[track] = clampi(int(ct[track]), 1, COMBAT_TRACKS[track]["stats"].size())
 	var st: Dictionary = d.get("shredder_tiers", {})
 	for track in SHREDDER_TRACKS:
 		shredder_tiers[track] = clampi(st.get(track, 1), 1, SHREDDER_MAX_TIER)

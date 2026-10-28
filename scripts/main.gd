@@ -68,6 +68,7 @@ var _autosave_timer := 0.0
 
 var _selftest := false
 var _screenshot_path := ""
+var _fight_arbiter := false  # --fight-arbiter: unsaved game starting in the seal chamber
 var loading_screen: CanvasLayer
 var _cave_dust: Node3D
 var _env: Environment
@@ -109,6 +110,8 @@ func _ready() -> void:
 			_shot_death = true
 		elif arg == "--hit":
 			_shot_hit = true
+		elif arg == "--fight-arbiter":
+			_fight_arbiter = true
 
 	_register_inputs()
 	_make_environment()
@@ -140,6 +143,16 @@ func _ready() -> void:
 	elif _selftest or not _screenshot_path.is_empty():
 		_start_game(-1, {})
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif _fight_arbiter:
+		# Straight into THE ARBITER's chamber (nothing is saved). It wakes as the caves load.
+		_start_game(-1, {})
+		var Gen = preload("res://scripts/world/terrain_generator.gd")
+		var c: Vector3 = Gen.seal_center(world.world_seed)
+		var sd: Vector3 = Gen.seal_dir(world.world_seed)
+		player.global_position = c - sd * 12.0 + Vector3(0, Gen.SEAL_FLOOR + 1.0, 0)
+		player.rotation.y = atan2(-sd.x, -sd.z)
+		progress.fire_visited = true
+		progress.silicon_found = true
 	else:
 		_show_menu()
 
@@ -545,6 +558,10 @@ func _on_boss_gone(boss: Node3D, killed: bool) -> void:
 	_fade_music(false)
 	hud.hide_boss()
 	if killed:
+		if boss.has_method("loot"):
+			player._flash(boss.defeat_text())
+			drop_cache(boss.drop_point(), boss.loot())
+			return
 		player._flash("%s slain" % boss.BOSS_NAME)
 		drop_cache(boss.global_position + Vector3(0, 0.3, 0), [
 			{"id": Items.CROOKED_CLAW, "count": 1},
@@ -1037,6 +1054,17 @@ func _run_screenshot() -> void:
 			print("Silicon caves at %s" % _silicon_spot)
 			player.global_position = _silicon_spot
 			player.active = false
+		if OS.get_cmdline_user_args().has("--arbiter"):
+			# In the seal chamber, looking toward the Seal (THE ARBITER appears once terrain loads).
+			var g = world._main_gen
+			var c: Vector3 = g.seal_center(world.world_seed)
+			var sd: Vector3 = g.seal_dir(world.world_seed)
+			print("Seal chamber at %s" % c)
+			player.global_position = c - sd * 4.0 + Vector3(0, g.SEAL_FLOOR + 1.0, 0)
+			player.rotation.y = atan2(-sd.x, -sd.z)
+			player.camera.rotation.x = 0.12
+			player.active = false
+			director.bosses_defeated["arbiter"] = true  # keep the director from waking a live one
 		if OS.get_cmdline_user_args().has("--arena"):
 			# Onto the floor of the nearest boss arena, looking across it.
 			var g = world._main_gen
@@ -1156,6 +1184,16 @@ func _run_screenshot() -> void:
 		_shot_bug.take_damage(14.0, from)
 		hud.hit_marker(false)
 		_shot_bug.take_damage(14.0, from)
+		_test_step = 2
+	elif OS.get_cmdline_user_args().has("--arbiter") and _test_step == 1 and _clock - _ready_time > 1.0:
+		var g = world._main_gen
+		var sd: Vector3 = g.seal_dir(world.world_seed)
+		var c: Vector3 = g.seal_center(world.world_seed)
+		var a = director.spawn_arbiter(c + sd * 3.0 + Vector3(0, g.SEAL_FLOOR + 0.7, 0))
+		a.player = null  # frozen for the picture, still animating
+		a.rotation.y = atan2(sd.x, sd.z)
+		if OS.get_cmdline_user_args().has("--windup"):
+			a._state = a.WINDUP
 		_test_step = 2
 	elif OS.get_cmdline_user_args().has("--boss") and _test_step == 1 and _clock - _ready_time > 0.5:
 		# Boss in plain view, a few metres ahead.

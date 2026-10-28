@@ -69,6 +69,16 @@ const SILICON_TUNNELS := 2
 const SILICON_TUNNEL_LENGTH := 110.0
 const SILICON_TUNNEL_RADIUS := 3.2
 const SILICON_BIOME_REACH := 1.35  # ellipsoid scale where the biome's materials stop
+## The Seal: a sandstone chamber off the far side of the silicon caves (away from the
+## spawn), joined by one tunnel. Its back wall is flat and holds the sealed door; THE
+## ARBITER guards it. Floor level with the dunes, four pillars to dodge around.
+const SEAL_DISTANCE := 98.0  # chamber centre from the silicon caves' centre
+const SEAL_RADII := Vector3(18.0, 9.0, 18.0)
+const SEAL_FLOOR := -5.0  # floor height relative to the chamber centre
+const SEAL_WALL := 15.5  # flat back wall, this far along the chamber's axis
+const SEAL_PILLARS := 4
+const SEAL_PILLAR_RING := 9.0
+const SEAL_PILLAR_RADIUS := 1.3
 
 var _tunnel_a := FastNoiseLite.new()
 var _tunnel_b := FastNoiseLite.new()
@@ -86,6 +96,8 @@ var _coal := FastNoiseLite.new()
 var _seed := 0
 var _arenas := {}  # Vector3i cube -> arena centre (or Vector3.INF), per generator instance
 var _silicon := Vector3.ZERO
+var _seal := Vector3.ZERO
+var _seal_dir := Vector3.FORWARD  # from the silicon caves toward the seal chamber
 
 
 func _init(seed_value: int) -> void:
@@ -104,6 +116,8 @@ func _init(seed_value: int) -> void:
 	_setup(_obsidian, seed_value + 11, 0.1, 2)
 	_setup(_coal, seed_value + 12, 0.07, 2)
 	_silicon = silicon_center(seed_value)
+	_seal = seal_center(seed_value)
+	_seal_dir = seal_dir(seed_value)
 
 
 func _setup(n: FastNoiseLite, s: int, freq: float, octaves: int) -> void:
@@ -249,6 +263,27 @@ static func silicon_center(seed_value: int) -> Vector3:
 	return Vector3(cos(a) * dist, rng.randf_range(-170.0, -130.0), sin(a) * dist)
 
 
+## Direction from the silicon caves to the seal chamber: straight away from the spawn.
+static func seal_dir(seed_value: int) -> Vector3:
+	var si := silicon_center(seed_value)
+	return Vector3(si.x, 0.0, si.z).normalized()
+
+
+## Centre of the seal chamber (its floor is SEAL_FLOOR below this, level with the dunes).
+static func seal_center(seed_value: int) -> Vector3:
+	var si := silicon_center(seed_value)
+	return si + seal_dir(seed_value) * SEAL_DISTANCE + Vector3(0, SILICON_FLOOR - SEAL_FLOOR, 0)
+
+
+## Where the sealed door sits: on the flat back wall, facing back into the chamber.
+static func seal_door(seed_value: int) -> Vector3:
+	return seal_center(seed_value) + seal_dir(seed_value) * SEAL_WALL + Vector3(0, SEAL_FLOOR + 4.5, 0)
+
+
+func in_seal(p: Vector3) -> bool:
+	return p.distance_to(_seal) < SEAL_RADII.x + 4.0
+
+
 # --- Silicon caves -----------------------------------------------------------------
 
 func _dune_height(x: float, z: float) -> float:
@@ -278,7 +313,39 @@ func _silicon_caves(x: float, y: float, z: float, d: float, detail: float) -> fl
 		var rel := Vector3(x, y, z) - start
 		var t := clampf(rel.dot(seg) / seg.length_squared(), 0.0, 1.0)
 		air = minf(air, rel.distance_to(seg * t) - SILICON_TUNNEL_RADIUS + detail * 0.4)
-	return minf(d, air)
+	d = minf(d, air)
+	return _seal_chamber(x, y, z, d, detail)
+
+
+func _seal_chamber(x: float, y: float, z: float, d: float, detail: float) -> float:
+	var p := Vector3(x, y, z)
+	var rel := p - _seal
+	if rel.length_squared() > 60.0 * 60.0:
+		return d
+	var floor_y := _seal.y + SEAL_FLOOR
+	var flat_r := Vector2(rel.x, rel.z).length()
+	# Solid floor slab, so caves below can't hole it.
+	var guard := minf(minf(floor_y - y + 0.5, y - (floor_y - 6.0)), SEAL_RADII.x + 3.0 - flat_r)
+	d = maxf(d, guard)
+	# Dome with a flat floor and a flat back wall for the door.
+	var e := Vector3(rel.x / SEAL_RADII.x, rel.y / SEAL_RADII.y, rel.z / SEAL_RADII.z)
+	var wall := (e.length() - 1.0) * SEAL_RADII.y
+	var floor_d := floor_y - y
+	var air := 0.5 * (wall + floor_d + sqrt((wall - floor_d) * (wall - floor_d) + 1.0))
+	air = maxf(air, rel.dot(_seal_dir) - SEAL_WALL)
+	air += detail * 0.2 * clampf((y - floor_y) / 3.0, 0.0, 1.0)
+	for i in SEAL_PILLARS:
+		var a := PI / SEAL_PILLARS + TAU * i / SEAL_PILLARS
+		var pc := Vector2(cos(a), sin(a)) * SEAL_PILLAR_RING
+		air = maxf(air, SEAL_PILLAR_RADIUS - Vector2(rel.x, rel.z).distance_to(pc) + detail * 0.2)
+	d = minf(d, air)
+	# The way in, from the far wall of the silicon caves.
+	var start := _silicon + _seal_dir * SILICON_RADII.x * 0.8 + Vector3(0, SILICON_FLOOR + 2.6, 0)
+	var end := _seal - _seal_dir * (SEAL_RADII.x - 3.0) + Vector3(0, SEAL_FLOOR + 2.6, 0)
+	var seg := end - start
+	var t := clampf((p - start).dot(seg) / seg.length_squared(), 0.0, 1.0)
+	d = minf(d, p.distance_to(start + seg * t) - SILICON_TUNNEL_RADIUS + detail * 0.4)
+	return d
 
 
 func in_silicon(p: Vector3) -> bool:
@@ -286,7 +353,7 @@ func in_silicon(p: Vector3) -> bool:
 
 
 func biome(x: float, y: float, z: float) -> int:
-	if _silicon_e(x, y, z) < SILICON_BIOME_REACH:
+	if _silicon_e(x, y, z) < SILICON_BIOME_REACH or in_seal(Vector3(x, y, z)):
 		return BIOME_SILICON
 	var score := _biome.get_noise_3d(x, y, z) * 0.6 \
 		+ Vector2(x, z).length() / BIOME_DISTANCE_SCALE \
@@ -301,6 +368,8 @@ func material(x: float, y: float, z: float) -> int:
 		return MAT_BEDROCK
 	var b := biome(x, y, z)
 	if b == BIOME_SILICON:
+		if in_seal(Vector3(x, y, z)):
+			return MAT_SANDSTONE  # dressed stone, no sand to harvest in here
 		# A deep bed of sand under the dunes, mostly the rich golden kind; sandstone around it.
 		var top := _dune_height(x, z)
 		if y < top + 1.0 and y > top - 7.0:

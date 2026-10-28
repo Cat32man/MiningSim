@@ -250,7 +250,7 @@ const DEFS := {
 	CHIP_PRINTER: {
 		"name": "Microchip printer",
 		"desc": "Prints microchips. 40 kW.",
-		"cost": {Items.IRON: 60, Items.STEEL: 15, Items.ELECTRUM: 30},
+		"cost": {Items.IRON: 60, Items.STEEL: 15, Items.ELECTRUM: 30, Items.ADVANCED_PLATING: 1},
 		"radius": 2.0,
 		"mount": "floor",
 		"hp": 180.0,

@@ -18,6 +18,9 @@ const CROOKED_CLAW := "crooked_claw"
 const SILICON := "silicon"
 const MICROCHIP := "microchip"
 const ADVANCED_PLATING := "advanced_plating"
+const TANK_SUIT := "tank_suit"
+const SCOUT_SUIT := "scout_suit"
+const ENGINEER_SUIT := "engineer_suit"
 
 ## Battery energy: 20 kW for 5 minutes (10 kW lasts 10 minutes, and so on).
 const BATTERY_CAPACITY := 20.0 * 300.0  # kJ
@@ -41,6 +44,10 @@ const DEFS := {
 	ADVANCED_PLATING: {"name": "Advanced plating", "short": "Plate", "weight": 4.0, "stack": 5, "color": Color(0.45, 0.95, 0.55)},
 	CROOKED_CLAW: {"name": "Crooked claw", "short": "Claw", "weight": 2.0, "stack": 1, "color": Color(0.86, 0.76, 0.56)},
 	# Worn in the suit slot (kept on death).
+	# Combat suits: built on a thermal suit, so they keep out the heat too.
+	TANK_SUIT: {"name": "Tank suit", "short": "Tank", "weight": 9.0, "stack": 1, "color": Color(0.45, 0.55, 0.7)},
+	SCOUT_SUIT: {"name": "Scout suit", "short": "Scout", "weight": 4.0, "stack": 1, "color": Color(0.35, 0.8, 0.5)},
+	ENGINEER_SUIT: {"name": "Engineer suit", "short": "Eng", "weight": 6.0, "stack": 1, "color": Color(0.95, 0.8, 0.25)},
 	THERMAL_SUIT: {"name": "Thermal suit", "short": "Suit", "weight": 6.0, "stack": 1, "color": Color(0.85, 0.5, 0.25)},
 	BATTERY: {"name": "Battery", "short": "Bat", "weight": 8.0, "stack": 1, "color": Color(0.35, 0.8, 0.45)},
 	# Throwable vein miner (G). Charges in a battery charger like a battery.

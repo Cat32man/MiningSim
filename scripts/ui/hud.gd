@@ -14,6 +14,13 @@ var _slot_drill: PanelContainer
 var _slot_shotgun: PanelContainer
 var _slot_pistol: PanelContainer
 var _slot_dagger: PanelContainer
+var _slot_smg: PanelContainer
+var _armor_bar: ProgressBar
+var _armor_value: Label
+var _dash_bar: ProgressBar
+var _dash_value: Label
+var _hotbar: HBoxContainer
+var _hotbar_key := ""
 var _weapon: Label
 var _threat: Label
 var _health_bar: ProgressBar
@@ -75,6 +82,8 @@ func _ready() -> void:
 	slots.add_child(_slot_pistol)
 	_slot_dagger = _slot("5", "CROOKED DAGGER")
 	slots.add_child(_slot_dagger)
+	_slot_smg = _slot("6", "LASER SMG")
+	slots.add_child(_slot_smg)
 	var tools_panel := _panel()
 	tl.add_child(tools_panel)
 	var tools_box := VBoxContainer.new()
@@ -136,12 +145,31 @@ func _ready() -> void:
 	var climb := _vital(vitals, "CLIMB", Color(0.55, 0.85, 1.0))
 	_stamina_bar = climb[0]
 	_stamina_value = climb[1]
+	var arm := _vital(vitals, "ARMOR", Color(0.6, 0.75, 1.0))
+	_armor_bar = arm[0]
+	_armor_value = arm[1]
+	var dash := _vital(vitals, "DASH", Color(0.5, 1.0, 0.7))
+	_dash_bar = dash[0]
+	_dash_value = dash[1]
 	var pack := _vital(vitals, "PACK", Color(0.75, 0.72, 0.66))
 	_pack_bar = pack[0]
 	_pack_value = pack[1]
 	_pack_items = _label("", 14, DIM)
 	_pack_items.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vitals.add_child(_pack_items)
+
+	# Bottom centre: the engineer's build hotbar (B).
+	_hotbar = HBoxContainer.new()
+	_hotbar.add_theme_constant_override("separation", 6)
+	_hotbar.anchor_left = 0.5
+	_hotbar.anchor_right = 0.5
+	_hotbar.anchor_top = 1.0
+	_hotbar.anchor_bottom = 1.0
+	_hotbar.offset_bottom = -64
+	_hotbar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_hotbar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_hotbar.visible = false
+	root.add_child(_hotbar)
 
 	# Damage flash: a red wash that fades out.
 	_vignette = ColorRect.new()
@@ -305,8 +333,12 @@ func update_state(s: Dictionary) -> void:
 	_set_slot_active(_slot_pistol, s["tool"] == 3, true)
 	_set_slot_active(_slot_dagger, s["tool"] == 4, s.get("dagger_owned", false))
 	_slot_dagger.visible = s.get("dagger_owned", false)  # appears once you've made it
+	_set_slot_active(_slot_smg, s["tool"] == 5, s.get("smg_owned", false))
+	_slot_smg.visible = s.get("smg_owned", false)
 	var heat_txt: String = "OVERHEATED" if s["overheated"] else "%d%%" % roundi(s["heat"] * 100.0)
 	_weapon.text = "SHOTGUN  %d / %d charges   ·   PISTOL heat %s" % [s["charges"], s["charges_max"], heat_txt]
+	if s.get("smg_owned", false):
+		_weapon.text += "   ·   SMG %s" % ("OVERHEATED" if s["smg_overheated"] else "%d%%" % roundi(s["smg_heat"] * 100.0))
 	_weapon.label_settings.font_color = Color(1.0, 0.45, 0.35) if s["overheated"] else TEXT
 	_threat.text = "Threat: " + String(s["threat"])
 	var hp: float = s["health"]
@@ -339,6 +371,20 @@ func update_state(s: Dictionary) -> void:
 		_fuel_value.text = "no drill"
 	_stamina_bar.value = s["stamina"]
 	_stamina_value.text = "climbing" if s["climbing"] else "%d%%" % roundi(s["stamina"] * 100.0)
+	var amax: float = s.get("armor_max", 0.0)
+	_armor_bar.get_parent().visible = amax > 0.0
+	if amax > 0.0:
+		_armor_bar.value = s["armor"] / amax
+		_armor_value.text = "%d / %d" % [roundi(s["armor"]), roundi(amax)]
+	var dmax: int = s.get("dashes_max", 0)
+	_dash_bar.get_parent().visible = dmax > 0
+	if dmax > 0:
+		_dash_bar.value = float(s["dashes"]) / dmax
+		var dots := ""
+		for i in dmax:
+			dots += "● " if i < s["dashes"] else "○ "
+		_dash_value.text = dots.strip_edges()
+	_update_hotbar(s)
 	_pack_bar.value = s["weight"] / s["capacity"]
 	_pack_bar.modulate = Color.WHITE if _pack_bar.value < 0.9 else Color(1.0, 0.55, 0.4)
 	_pack_value.text = "%.0f / %.0f kg" % [s["weight"], s["capacity"]]
@@ -372,6 +418,25 @@ func _panel() -> PanelContainer:
 	sb.content_margin_bottom = 8
 	p.add_theme_stylebox_override("panel", sb)
 	return p
+
+
+func _update_hotbar(s: Dictionary) -> void:
+	var on: bool = s.get("hotbar_on", false)
+	_hotbar.visible = on
+	if not on:
+		return
+	var names: Array = s.get("hotbar", [])
+	var sel: int = s.get("hotbar_sel", -1)
+	var key := "%s|%d" % [str(names), sel]
+	if key == _hotbar_key:
+		return
+	_hotbar_key = key
+	for c in _hotbar.get_children():
+		c.queue_free()
+	for i in names.size():
+		var p := _slot(str((i + 1) % 10), names[i])
+		_set_slot_active(p, i == sel, true)
+		_hotbar.add_child(p)
 
 
 func _slot(key: String, title: String) -> PanelContainer:

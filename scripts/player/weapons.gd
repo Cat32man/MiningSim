@@ -10,6 +10,13 @@ const PISTOL_HEAT_PER_SHOT := 0.13
 const PISTOL_COOL_PER_SEC := 0.45
 const PISTOL_SPREAD := 0.6  # degrees
 const PISTOL_COOLDOWN := 0.12
+## Laser SMG (bench): full auto, weaker shots, a much bigger heat budget than the pistol.
+const SMG_DAMAGE := 7.0
+const SMG_HEAT_PER_SHOT := 0.03
+const SMG_COOL_PER_SEC := 0.5
+const SMG_SPREAD := 2.0  # degrees
+const SMG_COOLDOWN := 0.07
+const SMG_COLOR := Color(0.85, 0.5, 1.0)
 const SHOTGUN_PELLETS := 8
 const SHOTGUN_DAMAGE := 7.0
 const SHOTGUN_SPREAD := 6.0
@@ -29,6 +36,11 @@ var heat := 0.0
 var overheated := false
 var charges := SHOTGUN_MAX
 var pistol_model: Node3D
+var smg_model: Node3D
+var smg_heat := 0.0
+var smg_overheated := false
+var _smg_muzzle: Node3D
+var _smg_vent_mat: StandardMaterial3D
 var shotgun_model: Node3D
 
 var _shotgun_pivot: Node3D
@@ -55,6 +67,11 @@ func tick(dt: float) -> void:
 	heat = maxf(heat - _stat("cooling", PISTOL_COOL_PER_SEC * 100.0) / 100.0 * dt, 0.0)
 	if overheated and heat <= 0.0:
 		overheated = false
+	smg_heat = maxf(smg_heat - SMG_COOL_PER_SEC * dt, 0.0)
+	if smg_overheated and smg_heat <= 0.0:
+		smg_overheated = false
+	if _smg_vent_mat:
+		_smg_vent_mat.emission_energy_multiplier = smg_heat * 4.0
 	if charges < max_charges():
 		_regen_t += dt
 		if _regen_t >= SHOTGUN_REGEN:
@@ -143,6 +160,24 @@ func fire_pistol() -> void:
 	Sfx.play("pistol", player, -3.0, randf_range(0.95, 1.05))
 	_kick = 0.6
 	_muzzle_flash(_pistol_muzzle, Color(0.4, 0.85, 1.0))
+
+
+## Held fire: called every frame while the trigger is down.
+func fire_smg() -> void:
+	if _cd > 0.0:
+		return
+	if smg_overheated:
+		return
+	_cd = SMG_COOLDOWN
+	smg_heat += SMG_HEAT_PER_SHOT
+	if smg_heat >= 1.0:
+		smg_heat = 1.0
+		smg_overheated = true
+		Sfx.play("overheat", player, -2.0)
+	_shoot(_smg_muzzle, SMG_SPREAD, _stat("smg", SMG_DAMAGE), SMG_COLOR, 0.009)
+	Sfx.play("pistol", player, -8.0, randf_range(1.25, 1.4))
+	_kick = maxf(_kick, 0.35)
+	_muzzle_flash(_smg_muzzle, SMG_COLOR)
 
 
 func fire_shotgun() -> void:
@@ -261,6 +296,25 @@ func _build_models() -> void:
 	_pistol_muzzle = Node3D.new()
 	_pistol_muzzle.position = Vector3(0, 0.0, -0.2)
 	pistol_model.add_child(_pistol_muzzle)
+
+	# SMG: boxy receiver, long magazine, short shroud with violet coils.
+	var violet := _glow(SMG_COLOR, 3.0)
+	_smg_vent_mat = _glow(Color(1.0, 0.35, 0.1), 0.0)
+	smg_model = Node3D.new()
+	add_child(smg_model)
+	_part(smg_model, Vector3(0.06, 0.08, 0.3), Vector3(0, 0, -0.07), gunmetal)
+	_part(smg_model, Vector3(0.05, 0.05, 0.12), Vector3(0, 0, -0.27), polymer)  # shroud
+	for i in 3:
+		_part(smg_model, Vector3(0.056, 0.056, 0.012), Vector3(0, 0, -0.23 - i * 0.03), violet)
+	var mag := _part(smg_model, Vector3(0.035, 0.14, 0.05), Vector3(0, -0.1, -0.1), polymer)
+	mag.rotation.x = 0.15
+	var smg_grip := _part(smg_model, Vector3(0.045, 0.11, 0.05), Vector3(0, -0.08, 0.05), polymer)
+	smg_grip.rotation.x = 0.25
+	_part(smg_model, Vector3(0.062, 0.018, 0.12), Vector3(0, 0.048, -0.05), _smg_vent_mat)
+	_part(smg_model, Vector3(0.03, 0.03, 0.08), Vector3(0, 0.06, 0.1), accent)  # sight rail
+	_smg_muzzle = Node3D.new()
+	_smg_muzzle.position = Vector3(0, 0.0, -0.34)
+	smg_model.add_child(_smg_muzzle)
 
 	shotgun_model = Node3D.new()
 	add_child(shotgun_model)

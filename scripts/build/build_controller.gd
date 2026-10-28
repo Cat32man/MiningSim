@@ -35,6 +35,13 @@ var _snap := {}  # frame + slot key for the piece under the crosshair
 var _why := ""
 
 
+## Placement reach: longer in the engineer suit (with its upgrade).
+func reach() -> float:
+	if player and player.progress and player.suit() == Items.ENGINEER_SUIT:
+		return player.progress.combat_stat("eng_reach")
+	return REACH
+
+
 func is_placing() -> bool:
 	return selected != ""
 
@@ -75,7 +82,7 @@ func _process(_dt: float) -> void:
 	if _ghost == null:
 		return
 	var mount := _mount()
-	var hit := _ray(REACH, 1 if mount == "wall" else 3)
+	var hit := _ray(reach(), 1 if mount == "wall" else 3)
 	if hit.is_empty():
 		_ghost.visible = false
 		_valid = false

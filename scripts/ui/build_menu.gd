@@ -152,7 +152,11 @@ func _card(id: String, key: int, can: bool, locked := false) -> Control:
 		thumb.modulate = Color(1, 1, 1, 0.45)
 	col.add_child(thumb)
 
-	var name_l := UI.label("???" if locked else def["name"], 15, Color(0.95, 0.93, 0.9) if can else DIM)
+	var pin: int = _player.hotbar().find(id) if _player and _player.suit() == Items.ENGINEER_SUIT else -1
+	var shown_name: String = "???" if locked else def["name"]
+	if pin >= 0:
+		shown_name = "◆%d %s" % [(pin + 1) % 10, shown_name]
+	var name_l := UI.label(shown_name, 15, Color(0.95, 0.93, 0.9) if can else DIM)
 	name_l.autowrap_mode = TextServer.AUTOWRAP_OFF
 	name_l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name_l.clip_text = true
@@ -182,7 +186,9 @@ func _card(id: String, key: int, can: bool, locked := false) -> Control:
 			_set_hover(""))
 	card.gui_input.connect(func(e: InputEvent):
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-			_pick(id))
+			_pick(id)
+		elif e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_RIGHT:
+			_toggle_pin(id))
 	return card
 
 
@@ -202,6 +208,22 @@ static func _short_cost(cost: Dictionary) -> String:
 	for id in cost:
 		parts.append("%d %s" % [cost[id], Items.DEFS[id]["short"]])
 	return " · ".join(parts) if not parts.is_empty() else "Free"
+
+
+## Engineer suit: right-click a card to pin it to the build hotbar (or unpin it).
+func _toggle_pin(id: String) -> void:
+	if _player == null or _player.suit() != Items.ENGINEER_SUIT or _locked(id):
+		return
+	var bar: Array = _player.progress.eng_hotbar
+	_player.hotbar()  # fills the defaults first if it's never been set
+	if bar.has(id):
+		bar.erase(id)
+	elif bar.size() < roundi(_player.progress.combat_stat("eng_slots")):
+		bar.append(id)
+	else:
+		_info.text = "Hotbar full"
+		return
+	_rebuild()
 
 
 func _pick(id: String) -> void:

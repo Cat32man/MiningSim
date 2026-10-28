@@ -43,6 +43,31 @@ const RECIPES := {
 		"time": 20.0,
 		"item": Items.THERMAL_SUIT,
 	},
+	# Combat suits, each built on a thermal suit.
+	"tank_suit": {
+		"model": "suit_tank",
+		"name": "Tank suit",
+		"desc": "Armor halves damage. Empty armor: you take more.",
+		"cost": {Items.THERMAL_SUIT: 1, Items.STEEL: 20, Items.COBALT: 20, Items.IRON: 30},
+		"time": 25.0,
+		"item": Items.TANK_SUIT,
+	},
+	"scout_suit": {
+		"model": "suit_scout",
+		"name": "Scout suit",
+		"desc": "Shift in midair to dash.",
+		"cost": {Items.THERMAL_SUIT: 1, Items.STEEL: 10, Items.ELECTRUM: 30, Items.DIAMOND: 6},
+		"time": 25.0,
+		"item": Items.SCOUT_SUIT,
+	},
+	"engineer_suit": {
+		"model": "suit_engineer",
+		"name": "Engineer suit",
+		"desc": "B: build hotbar.",
+		"cost": {Items.THERMAL_SUIT: 1, Items.STEEL: 10, Items.IRON: 40, Items.ELECTRUM: 20},
+		"time": 25.0,
+		"item": Items.ENGINEER_SUIT,
+	},
 	"crooked_dagger": {
 		"model": "dagger",
 		"name": "Crooked dagger",
@@ -50,6 +75,14 @@ const RECIPES := {
 		"cost": {Items.CROOKED_CLAW: 1, Items.STEEL: 4, Items.OBSIDIAN: 2},
 		"time": 15.0,
 		"upgrade": "dagger_owned",
+	},
+	"smg": {
+		"model": "smg",
+		"name": "Laser SMG",
+		"desc": "Full auto. Weapon 6.",
+		"cost": {Items.STEEL: 10, Items.ELECTRUM: 30, Items.COBALT: 8},
+		"time": 15.0,
+		"upgrade": "smg_owned",
 	},
 	"shredder_hop": {
 		"model": "shredder_hop",
@@ -74,9 +107,16 @@ const RECIPES := {
 	"combat_armor": {"model": "armor", "combat": "armor", "time": 15.0},
 	"combat_regen": {"model": "medgel", "combat": "regen", "time": 12.0},
 	"combat_pistol": {"model": "pistol", "combat": "pistol", "time": 12.0},
+	"combat_smg": {"model": "smg", "combat": "smg", "time": 12.0, "requires": "smg_owned"},
 	"combat_cooling": {"model": "heatsink", "combat": "cooling", "time": 10.0},
 	"combat_shotgun": {"model": "shotgun", "combat": "shotgun", "time": 12.0},
 	"combat_cells": {"model": "cell", "combat": "cells", "time": 10.0},
+	"tank_armor": {"model": "suit_tank", "combat": "tank_armor", "time": 15.0, "needs_item": Items.TANK_SUIT},
+	"tank_regen": {"model": "suit_tank", "combat": "tank_regen", "time": 15.0, "needs_item": Items.TANK_SUIT},
+	"scout_dashes": {"model": "suit_scout", "combat": "scout_dashes", "time": 15.0, "needs_item": Items.SCOUT_SUIT},
+	"scout_recharge": {"model": "suit_scout", "combat": "scout_recharge", "time": 15.0, "needs_item": Items.SCOUT_SUIT},
+	"eng_slots": {"model": "suit_engineer", "combat": "eng_slots", "time": 12.0, "needs_item": Items.ENGINEER_SUIT},
+	"eng_reach": {"model": "suit_engineer", "combat": "eng_reach", "time": 12.0, "needs_item": Items.ENGINEER_SUIT},
 }
 
 const ROMAN := ["I", "II", "III", "IV", "V"]
@@ -215,6 +255,8 @@ static func available(id: String, progress) -> bool:
 		return false  # maxed
 	if r.has("requires") and not progress.get(r["requires"]):
 		return false
+	if r.has("needs_item") and not progress.discovered.has(r["needs_item"]):
+		return false  # suit upgrades: only once you've had that suit
 	return progress.knows_all(r["cost"])
 
 

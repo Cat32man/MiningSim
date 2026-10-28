@@ -1139,6 +1139,12 @@ func _run_screenshot() -> void:
 			tw.position = player.global_position + Vector3(60, -0.95, 20)
 			grid.add(tw)
 			t.interact(player)
+		if OS.get_cmdline_user_args().has("--suits"):
+			# Tank suit HUD rows, then the engineer's hotbar on screen.
+			player.equipment.add_stack({"id": Items.ENGINEER_SUIT, "count": 1})
+			player.build_hotbar = true
+			progress.smg_owned = true
+			player._select_tool(5)
 		if OS.get_cmdline_user_args().has("--structure"):
 			# A little hut ahead of the spawn, seen from outside with its lamp on.
 			_debug_hut(player.global_position + Vector3(0, -0.95, -5.0))
@@ -1266,6 +1272,8 @@ func _register_inputs() -> void:
 	_key("tool_3", KEY_3)
 	_key("tool_4", KEY_4)
 	_key("tool_5", KEY_5)
+	_key("tool_6", KEY_6)
+	_key("build_hotbar", KEY_B)
 	_key("inventory", KEY_TAB)
 	if not InputMap.has_action("use"):
 		InputMap.add_action("use")

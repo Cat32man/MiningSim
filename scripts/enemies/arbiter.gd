@@ -22,8 +22,9 @@ const HURTBOX_LAYER := 32
 const GREEN := Color(0.35, 1.0, 0.5)
 const HOVER := 0.7  # feet this far off the floor
 const ORBIT := 9.0  # preferred distance from you
-const MOVE_SPEED := 5.0
-const DASH_SPEED := 26.0
+const MOVE_SPEED := 7.5
+const DASH_SPEED := 30.0
+const VIEW_CONE := 0.75  # radians off your look direction before it hurries back in front
 const DASH_DAMAGE := 14.0
 const SLASH_DAMAGE := 9.0
 const SLASH_RANGE := 3.2
@@ -56,12 +57,13 @@ var _dash_dir := Vector3.FORWARD
 var _dash_left := 0.0
 var _dash_hit := false
 var _chain := 0
+var _chained := false  # this windup follows a dash in the same chain
 var _shots_left := 0
 var _shot_t := 0.0
-var _dash_cd := 3.0
+var _dash_cd := 1.5
 var _slash_cd := 0.0
 var _burst_cd := 1.5
-var _bomb_cd := 6.0
+var _bomb_cd := 4.0
 var _orbit_sign := 1.0
 var _orbit_t := 4.0
 var _floor_y := NAN
@@ -81,6 +83,7 @@ var _visor_mat: StandardMaterial3D
 var _wisps: Array = []  # [base Node3D, angle, segments Array]
 var _wisp_mat: StandardMaterial3D
 var _orb: MeshInstance3D  # the bomb gathering above its head
+var _pips: Array = []  # dashes still to come, as glowing beads circling over its head
 var _tele: MeshInstance3D  # dash warning line on the floor
 var _tele_mat: StandardMaterial3D
 var _light: OmniLight3D
@@ -185,12 +188,21 @@ func _physics_process(dt: float) -> void:
 				var radial := dir * clampf(dist - ORBIT, -1.0, 1.0) * MOVE_SPEED
 				var side := dir.cross(Vector3.UP) * _orbit_sign * MOVE_SPEED * 0.6
 				move = radial + side
+				# Out of your view: swing round to where you're looking (the short way).
+				var look: Vector3 = -player.global_basis.z
+				look = Vector3(look.x, 0.0, look.z).normalized()
+				var off_angle := look.signed_angle_to(-dir, Vector3.UP)
+				if absf(off_angle) > VIEW_CONE:
+					var goal: Vector3 = player.global_position + look.rotated(Vector3.UP, signf(off_angle) * 0.4) * ORBIT
+					var to_goal := goal - global_position
+					move = Vector3(to_goal.x, 0.0, to_goal.z).normalized() * MOVE_SPEED * 1.6
 				var sight := _can_see_player()
 				if dist < SLASH_RANGE and _slash_cd <= 0.0:
 					_enter(SLASH)
 					Sfx.play_3d("slash", global_position + Vector3.UP * 1.4, get_parent(), 2.0, 0.7)
 				elif sight and _dash_cd <= 0.0 and dist < 26.0:
 					_chain = 3 if _enraged else 1
+					_chained = false
 					_start_windup(0.85 if not _enraged else 0.6)
 				elif sight and _bomb_cd <= 0.0 and dist > 7.0:
 					_enter(BOMB)
@@ -204,7 +216,7 @@ func _physics_process(dt: float) -> void:
 			face = _state_t < _windup_time() - 0.15  # stops tracking just before it goes
 			if face and dist > 0.01:
 				_dash_dir = dir
-				_dash_left = clampf(dist + 5.0, 10.0, 30.0)
+				_dash_left = clampf(dist - 1.0, 4.0, 30.0)
 			_show_tele(true)
 			if _state_t >= _windup_time():
 				_show_tele(false)
@@ -217,25 +229,25 @@ func _physics_process(dt: float) -> void:
 			_dash_left -= DASH_SPEED * dt
 			if not _dash_hit and alive:
 				var body_c := global_position + Vector3.UP * 1.6
-				if body_c.distance_to(player.global_position + Vector3.UP * 0.9) < 1.9:
+				if body_c.distance_to(player.global_position + Vector3.UP * 0.9) < 2.2:
 					_dash_hit = true
 					player.take_damage(DASH_DAMAGE, global_position)
 		RECOVER:
 			move = -dir * 0.8
 			if _state_t >= 0.8:
-				_dash_cd = 2.6 if _enraged else 4.0
+				_dash_cd = 1.8 if _enraged else 2.8
 				_enter(HOVERING)
 		STUNNED:
 			face = false
 			if _state_t >= STUN_TIME:
-				_dash_cd = 2.6 if _enraged else 4.0
+				_dash_cd = 1.8 if _enraged else 2.8
 				_enter(HOVERING)
 		SLASH:
 			if _state_t >= 0.35 and _state_t - dt < 0.35:
 				if alive and dist < SLASH_RANGE + 0.6:
 					player.take_damage(SLASH_DAMAGE, global_position)
 			if _state_t >= 0.7:
-				_slash_cd = 1.4
+				_slash_cd = 1.0
 				_enter(HOVERING)
 		BURST:
 			move = dir.cross(Vector3.UP) * _orbit_sign * MOVE_SPEED * 0.3
@@ -245,12 +257,12 @@ func _physics_process(dt: float) -> void:
 				_shot_t = 0.09 if _enraged else 0.13
 				_fire_burst()
 			if _shots_left <= 0 and _shot_t <= 0.0:
-				_burst_cd = 2.0 if _enraged else 3.2
+				_burst_cd = 1.4 if _enraged else 2.2
 				_enter(HOVERING)
 		BOMB:
 			if _state_t >= 1.1:
 				_fire_bomb()
-				_bomb_cd = 6.0 if _enraged else 9.5
+				_bomb_cd = 4.5 if _enraged else 7.0
 				_enter(HOVERING)
 
 	if face and dist > 0.01:
@@ -273,16 +285,21 @@ func _physics_process(dt: float) -> void:
 			_end_dash()
 
 
+## The first windup of a chain is long (longer still for the triple dash, so you can see
+## it coming); the follow-ups are short but still show their line.
 func _windup_time() -> float:
-	return (0.6 if _enraged else 0.85) if _chain >= (3 if _enraged else 1) else 0.4
+	if _chain >= 3:
+		return 1.3
+	return 0.8 if _chain == 1 and not _chained else 0.55
 
 
 func _start_windup(_t0: float) -> void:
 	_enter(WINDUP)
-	Sfx.play_3d("charge", global_position + Vector3.UP * 1.4, get_parent(), 4.0, 1.0)
+	var big := _chain >= 3
+	Sfx.play_3d("charge", global_position + Vector3.UP * 1.4, get_parent(), 8.0 if big else 4.0, 0.8 if big else 1.0)
 	var to: Vector3 = player.global_position - global_position
 	_dash_dir = Vector3(to.x, 0.0, to.z).normalized()
-	_dash_left = clampf(Vector2(to.x, to.z).length() + 5.0, 10.0, 30.0)
+	_dash_left = clampf(Vector2(to.x, to.z).length() - 1.0, 4.0, 30.0)
 
 
 func _enter(s: int) -> void:
@@ -293,6 +310,7 @@ func _enter(s: int) -> void:
 func _end_dash() -> void:
 	_chain -= 1
 	if _chain > 0 and is_instance_valid(player):
+		_chained = true
 		_start_windup(0.4)
 	else:
 		_enter(RECOVER)
@@ -366,7 +384,7 @@ func _show_tele(on: bool) -> void:
 	var base := Vector3(global_position.x, _ground_y() + 0.06, global_position.z)
 	_tele.global_position = base + _dash_dir * _dash_left * 0.5
 	_tele.global_basis = Basis.looking_at(_dash_dir, Vector3.UP)* Basis.from_scale(Vector3(1.0, 1.0, _dash_left))
-	_tele_mat.albedo_color = Color(GREEN, 0.15 + 0.45 * a * (0.7 + 0.3 * sin(_t * 30.0)))
+	_tele_mat.albedo_color = Color(GREEN, 0.25 + 0.65 * a * (0.7 + 0.3 * sin(_t * 30.0)))
 
 
 ## Returns true if this hit "killed" it (it flees instead of dying).
@@ -473,6 +491,19 @@ func _animate(dt: float) -> void:
 	_blade_mat.emission_energy_multiplier = glow * (0.9 + 0.1 * sin(_t * 23.0))
 	_visor_mat.emission_energy_multiplier = (1.0 if stunned and fmod(_t, 0.3) < 0.15 else 5.0) * (1.2 if _enraged else 1.0)
 	_light.light_energy = 0.8 + glow * 0.12
+	# Dash pips: one per dash left in the chain. On the triple's long windup they light
+	# up one at a time.
+	var pips := 0
+	if _state == WINDUP or _state == DASH:
+		pips = _chain
+		if _state == WINDUP and _chain >= 3:
+			pips = clampi(int(_state_t / 0.35) + 1, 1, 3)
+	for i in _pips.size():
+		var pip: MeshInstance3D = _pips[i]
+		pip.visible = i < pips and not _dead
+		var a := _t * 4.0 + TAU * i / 3.0
+		pip.position = Vector3(cos(a) * 0.45, 2.75 + sin(_t * 6.0 + i) * 0.05, sin(a) * 0.45)
+		pip.scale = Vector3.ONE * (1.0 + 0.25 * sin(_t * 18.0 + i))
 	# The bomb swelling overhead.
 	_orb.visible = _state == BOMB and not _dead
 	if _orb.visible:
@@ -605,6 +636,17 @@ func _build_model() -> void:
 			segs.append(mi)
 		_wisps.append([base, a, segs])
 
+	for i in 3:
+		var pip := MeshInstance3D.new()
+		var pm := SphereMesh.new()
+		pm.radius = 0.13
+		pm.height = 0.26
+		pip.mesh = pm
+		pip.material_override = _visor_mat
+		pip.visible = false
+		_body.add_child(pip)
+		_pips.append(pip)
+
 	_orb = MeshInstance3D.new()
 	var om := SphereMesh.new()
 	om.radius = 0.6
@@ -650,7 +692,7 @@ func _build_model() -> void:
 	_tele_mat.albedo_color = Color(GREEN, 0.3)
 	_tele = MeshInstance3D.new()
 	var tb := BoxMesh.new()
-	tb.size = Vector3(1.0, 0.04, 1.0)
+	tb.size = Vector3(1.4, 0.04, 1.0)
 	_tele.mesh = tb
 	_tele.material_override = _tele_mat
 	_tele.top_level = true

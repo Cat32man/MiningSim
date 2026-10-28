@@ -280,3 +280,13 @@ static func make(id: String) -> Node3D:
 	b.hp = b.max_hp
 	b.bite_radius = DEFS[id]["bite_radius"]
 	return b
+
+
+## Blueprint not found yet (same rule as the build menu).
+static func locked(id: String, progress) -> bool:
+	var need: String = DEFS[id].get("requires", "")
+	if need == "" or progress == null:
+		return need != ""
+	if need.begins_with("bp:"):
+		return not progress.blueprints.has(need.trim_prefix("bp:"))
+	return not progress.get(need)

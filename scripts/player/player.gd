@@ -52,9 +52,15 @@ const LAND_DIP_MAX := 0.22
 const INTERACT_REACH := 2.5
 
 ## Slots: miner (1 pickaxe, 2 drill), main weapon (3 laser shotgun), offhand (4 laser pistol).
-enum Tool { PICKAXE, DRILL, SHOTGUN, PISTOL, DAGGER }
+enum Tool { PICKAXE, DRILL, SHOTGUN, PISTOL, DAGGER, SMG }
 
 const MAX_HEALTH := 100.0
+## Suits (bench). All are built on the thermal suit, so any of them keeps out the heat.
+const SUITS := [Items.THERMAL_SUIT, Items.TANK_SUIT, Items.SCOUT_SUIT, Items.ENGINEER_SUIT]
+const ARMOR_REGEN_DELAY := 3.0
+const ARMOR_BREAK_MULT := 4.0 / 3.0  # tank suit with its armor gone: hits land harder
+const SCOUT_DASH_SPEED := 13.0
+const SCOUT_DASH_TIME := 0.22  # air control is off this long, so the dash carries
 const REGEN_DELAY := 6.0  # seconds without damage before health regenerates
 const REGEN_PER_SEC := 4.0
 ## Respawn debuff: max health is halved for this long.
@@ -136,7 +142,13 @@ var controls_enabled := true
 
 var backpack = Inventory.new(BACKPACK_SLOTS, "Backpack")
 ## Worn gear. Like your tools and weapons it stays with you when you die; only the backpack drops.
-var equipment = Inventory.new(1, "Suit", [Items.THERMAL_SUIT])
+var equipment = Inventory.new(1, "Suit", SUITS)
+var armor := 0.0  # tank suit
+var dashes := 0  # scout suit
+var build_hotbar := false  # engineer suit: number keys pick building pieces
+var _dash_recharge := 0.0
+var _dash_t := 0.0
+var _last_suit := ""
 ## Set by main (boss lairs on the scanner).
 var director
 var tool := Tool.PICKAXE
@@ -282,6 +294,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		builder.deconstruct()
 	elif event.is_action_pressed("deploy"):
 		throw_shredder()
+	elif event.is_action_pressed("build_hotbar"):
+		toggle_build_hotbar()
+	elif build_hotbar and _hotbar_key(event) >= 0:
+		_hotbar_pick(_hotbar_key(event))
 	elif event.is_action_pressed("tool_1"):
 		_select_tool(Tool.PICKAXE)
 	elif event.is_action_pressed("tool_2"):
@@ -292,6 +308,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_select_tool(Tool.PISTOL)
 	elif event.is_action_pressed("tool_5"):
 		_select_tool(Tool.DAGGER)
+	elif event.is_action_pressed("tool_6"):
+		_select_tool(Tool.SMG)
 	elif event.is_action_pressed("interact"):
 		if _interact():
 			get_viewport().set_input_as_handled()
@@ -336,6 +354,10 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= _gravity * delta
 	if controls_enabled and Input.is_action_just_pressed("jump") and is_on_floor():
 		velocity.y = JUMP_VELOCITY * (OVERWEIGHT_JUMP if is_overweight() else 1.0)
+	_dash_t = maxf(_dash_t - delta, 0.0)
+	if controls_enabled and Input.is_action_just_pressed("sprint") and not is_on_floor() and dashes > 0 \
+			and not climbing:
+		_air_dash()
 		_land_v -= JUMP_DIP * 12.0
 
 	var input := Vector2.ZERO
@@ -345,8 +367,9 @@ func _physics_process(delta: float) -> void:
 	var speed := SPRINT_SPEED if Input.is_action_pressed("sprint") else WALK_SPEED
 	if is_overweight():
 		speed = OVERWEIGHT_SPEED
-	velocity.x = move_toward(velocity.x, dir.x * speed, speed * 10.0 * delta)
-	velocity.z = move_toward(velocity.z, dir.z * speed, speed * 10.0 * delta)
+	if _dash_t <= 0.0:
+		velocity.x = move_toward(velocity.x, dir.x * speed, speed * 10.0 * delta)
+		velocity.z = move_toward(velocity.z, dir.z * speed, speed * 10.0 * delta)
 	_climb(delta)
 	var was_floor := is_on_floor()
 	var fall_speed := -velocity.y
@@ -367,6 +390,8 @@ func _physics_process(delta: float) -> void:
 		and not (builder and builder.is_placing())
 	var using: bool = can_use and Input.is_action_pressed("use")
 	_update_tools(delta, using)
+	if using and tool == Tool.SMG:
+		weapons.fire_smg()
 	if can_use and Input.is_action_just_pressed("use"):
 		if tool == Tool.PISTOL:
 			weapons.fire_pistol()
@@ -423,6 +448,7 @@ func _process(delta: float) -> void:
 	if health > 0.0 and _since_hit >= REGEN_DELAY:
 		var regen: float = progress.combat_stat("regen") if progress else REGEN_PER_SEC
 		health = minf(health + regen * delta, max_health())
+	_update_suit(delta)
 	_tap_hold("flare", _f_state, delta, throw_flare,
 		func(): flashlight.visible = not flashlight.visible)
 	_scan_cd = maxf(_scan_cd - delta, 0.0)
@@ -453,6 +479,8 @@ func _select_tool(t: Tool) -> void:
 		return
 	if t == Tool.DAGGER and not (progress and progress.dagger_owned):
 		return
+	if t == Tool.SMG and not (progress and progress.smg_owned):
+		return
 	tool = t
 	_pick_state = PickState.IDLE  # switching tools cancels a swing
 	_pick_model.visible = t == Tool.PICKAXE
@@ -460,6 +488,7 @@ func _select_tool(t: Tool) -> void:
 	_dagger_model.visible = t == Tool.DAGGER
 	if weapons:
 		weapons.pistol_model.visible = t == Tool.PISTOL
+		weapons.smg_model.visible = t == Tool.SMG
 		weapons.shotgun_model.visible = t == Tool.SHOTGUN
 
 
@@ -473,7 +502,7 @@ func max_health() -> float:
 func take_damage(amount: float, _from: Vector3) -> void:
 	if health <= 0.0 or vehicle:
 		return
-	health -= amount
+	health -= _after_armor(amount)
 	_since_hit = 0.0
 	Sfx.play("hurt", self, -2.0, randf_range(0.9, 1.1))
 	if hud:
@@ -566,6 +595,7 @@ func respawn(at: Vector3) -> void:
 	camera.rotation = Vector3.ZERO
 	shaken_time = SHAKEN_TIME
 	health = max_health()
+	armor = armor_max()
 	fuel = fuel_max()  # a fresh tank with the respawn
 	_since_hit = 99.0
 
@@ -938,13 +968,13 @@ func _check_unlocks() -> void:
 	if progress == null:
 		return
 	var found: Array[String] = []
-	for s in backpack.slots:
+	for s in backpack.slots + equipment.slots:
 		if s != null and not progress.discovered.has(s["id"]) and not found.has(Items.name_of(s["id"])):
 			found.append(Items.name_of(s["id"]))
 	if found.is_empty():
 		return
 	var before := _known_recipes()
-	for s in backpack.slots:
+	for s in backpack.slots + equipment.slots:
 		if s != null:
 			progress.discovered[s["id"]] = true
 	var blueprint := false
@@ -1056,7 +1086,133 @@ func _note_biome(biome: int) -> void:
 
 ## Thermal suit worn: the fire caves can't hurt you.
 func heat_protected() -> bool:
-	return equipment.count_of(Items.THERMAL_SUIT) > 0
+	return suit() != ""
+
+
+## The suit you're wearing ("" for none).
+func suit() -> String:
+	var s = equipment.slots[0]
+	return s["id"] if s != null else ""
+
+
+func armor_max() -> float:
+	return progress.combat_stat("tank_armor") if progress and suit() == Items.TANK_SUIT else 0.0
+
+
+func dashes_max() -> int:
+	return roundi(progress.combat_stat("scout_dashes")) if progress and suit() == Items.SCOUT_SUIT else 0
+
+
+## Engineer build hotbar: building ids in key order (1..9, 0). Starts as the first
+## structure pieces.
+func hotbar() -> Array:
+	if progress == null:
+		return []
+	var n := roundi(progress.combat_stat("eng_slots"))
+	if progress.eng_hotbar.is_empty():
+		for id in Buildables.STRUCTURE_ORDER:
+			if progress.eng_hotbar.size() < n:
+				progress.eng_hotbar.append(id)
+	return progress.eng_hotbar.slice(0, n)
+
+
+func _hotbar_names() -> Array:
+	var out: Array = []
+	if build_hotbar:
+		for id in hotbar():
+			out.append(Buildables.DEFS[id]["name"])
+	return out
+
+
+func toggle_build_hotbar() -> void:
+	if suit() != Items.ENGINEER_SUIT:
+		_flash("Needs the engineer suit")
+		return
+	build_hotbar = not build_hotbar
+	if not build_hotbar and builder:
+		builder.cancel()
+	_flash("Build hotbar" if build_hotbar else "Tools")
+
+
+func _hotbar_key(event: InputEvent) -> int:
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return -1
+	var k: int = event.physical_keycode
+	if k >= KEY_1 and k <= KEY_9:
+		return k - KEY_1
+	return 9 if k == KEY_0 else -1
+
+
+func _hotbar_pick(i: int) -> void:
+	var bar := hotbar()
+	if i >= bar.size() or builder == null:
+		return
+	var id: String = bar[i]
+	if Buildables.locked(id, progress):
+		_flash("Not unlocked yet")
+		return
+	var cost: Dictionary = Buildables.DEFS[id]["cost"]
+	if not Inventory.can_afford(cost_sources(), cost):
+		_flash("Need %s" % Items.describe(cost))
+		return
+	builder.start(id)
+
+
+## Scout suit: Shift in midair throws you the way you're moving (or looking).
+func _air_dash() -> void:
+	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var dir := (global_basis * Vector3(input.x, 0.0, input.y)).normalized()
+	if dir == Vector3.ZERO:
+		dir = -global_basis.z
+	velocity.x = dir.x * SCOUT_DASH_SPEED
+	velocity.z = dir.z * SCOUT_DASH_SPEED
+	velocity.y = maxf(velocity.y, 1.5)
+	dashes -= 1
+	_dash_t = SCOUT_DASH_TIME
+	Sfx.play("dash", self, -6.0, 1.6)
+
+
+## Per-frame suit upkeep: armor and dash recharge, the hotbar off without the suit, and a
+## short note when you put a suit on.
+func _update_suit(delta: float) -> void:
+	var now := suit()
+	if now != _last_suit:
+		_last_suit = now
+		if hud and not _quiet_unlocks:
+			match now:
+				Items.TANK_SUIT:
+					hud.notify("TANK SUIT", ["Armor halves damage"], Color(0.55, 0.75, 1.0))
+				Items.SCOUT_SUIT:
+					hud.notify("SCOUT SUIT", ["Shift in midair: dash"], Color(0.5, 1.0, 0.7))
+				Items.ENGINEER_SUIT:
+					hud.notify("ENGINEER SUIT", ["B: build hotbar", "Right-click parts to pin"], Color(1.0, 0.8, 0.35))
+	var amax := armor_max()
+	if amax <= 0.0:
+		armor = 0.0
+	elif _since_hit >= ARMOR_REGEN_DELAY:
+		armor = minf(armor + progress.combat_stat("tank_regen") * delta, amax)
+	var dmax := dashes_max()
+	dashes = mini(dashes, dmax)
+	if dashes < dmax:
+		_dash_recharge += delta
+		if _dash_recharge >= progress.combat_stat("scout_recharge"):
+			_dash_recharge = 0.0
+			dashes += 1
+	else:
+		_dash_recharge = 0.0
+	if build_hotbar and now != Items.ENGINEER_SUIT:
+		build_hotbar = false
+
+
+## Tank suit: armor soaks half of each hit; with it gone, hits land harder.
+func _after_armor(amount: float) -> float:
+	if suit() != Items.TANK_SUIT:
+		return amount
+	if armor <= 0.0:
+		return amount * ARMOR_BREAK_MULT
+	var soak := minf(armor, amount * 0.5)
+	armor -= soak
+	return amount - soak
 
 
 func _update_heat(delta: float) -> void:
@@ -1259,6 +1415,9 @@ func _update_hud() -> void:
 		"tool": tool,
 		"drill_owned": progress != null and progress.drill_owned,
 		"dagger_owned": progress != null and progress.dagger_owned,
+		"smg_owned": progress != null and progress.smg_owned,
+		"smg_heat": weapons.smg_heat,
+		"smg_overheated": weapons.smg_overheated,
 		"credits": progress.credits if progress else 0,
 		"credits_known": progress != null and (progress.credits > 0 or not progress.blueprints.is_empty()),
 		"fuel": fuel,
@@ -1284,6 +1443,13 @@ func _update_hud() -> void:
 		"charges": weapons.charges,
 		"charges_max": weapons.max_charges(),
 		"threat": threat_label,
+		"armor": armor,
+		"armor_max": armor_max(),
+		"dashes": dashes,
+		"dashes_max": dashes_max(),
+		"hotbar_on": build_hotbar,
+		"hotbar": _hotbar_names(),
+		"hotbar_sel": hotbar().find(builder.selected) if build_hotbar and builder else -1,
 	})
 	var prompt := ""
 	var target = builder.target_building() if builder else null

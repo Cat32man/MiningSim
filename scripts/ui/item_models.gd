@@ -27,6 +27,12 @@ static func make(key: String) -> Node3D:
 			return _shredder()
 		"thermal_suit":
 			return _suit()
+		"suit_tank":
+			return _suit(Color(0.38, 0.44, 0.55), Color(0.45, 0.85, 1.0))
+		"suit_scout":
+			return _suit(Color(0.3, 0.72, 0.45), Color(0.8, 1.0, 0.85))
+		"suit_engineer":
+			return _suit(Color(0.95, 0.78, 0.2), Color(1.0, 0.5, 0.15))
 		"dagger":
 			return _dagger()
 		"drill":
@@ -43,6 +49,8 @@ static func make(key: String) -> Node3D:
 			return _blaster(Color(0.4, 0.85, 1.0), 0.7)
 		"shotgun":
 			return _blaster(Color(1.0, 0.55, 0.2), 1.0)
+		"smg":
+			return _blaster(Color(0.85, 0.5, 1.0), 0.85)
 		"heatsink":
 			return _heatsink()
 		"cell":
@@ -172,14 +180,14 @@ static func _steel() -> Node3D:
 	return root
 
 
-static func _suit() -> Node3D:
+static func _suit(cloth_c := Color(0.85, 0.5, 0.25), visor_c := Color(1.0, 0.6, 0.2)) -> Node3D:
 	var root := Node3D.new()
-	var cloth := _mat(Color(0.85, 0.5, 0.25), 0.1, 0.7)
+	var cloth := _mat(cloth_c, 0.1, 0.7)
 	var foil := _mat(Color(0.78, 0.78, 0.8), 0.6, 0.35)
 	_capsule(root, 0.2, 0.62, Vector3(0, 0.0, 0), cloth)  # torso
 	_box(root, Vector3(0.34, 0.36, 0.14), Vector3(0, 0.02, -0.2), foil)  # tank pack
 	_sphere(root, 0.16, Vector3(0, 0.42, 0.01), foil)  # helmet
-	_box(root, Vector3(0.2, 0.09, 0.05), Vector3(0, 0.43, 0.14), _glow(Color(1.0, 0.6, 0.2), 1.5))  # visor
+	_box(root, Vector3(0.2, 0.09, 0.05), Vector3(0, 0.43, 0.14), _glow(visor_c, 1.5))  # visor
 	for x in [-0.27, 0.27]:
 		var arm := _capsule(root, 0.07, 0.46, Vector3(x, -0.02, 0), cloth)
 		arm.rotation.z = 0.25 * signf(x)

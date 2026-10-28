@@ -54,6 +54,7 @@ var shredder_diamond := false
 var refinery_unlocked := false
 ## Crooked dagger crafted (weapon slot 5).
 var dagger_owned := false
+var smg_owned := false
 ## Shredders hop to the next vein of the same ore when they finish one.
 var shredder_hop := false
 ## Item ids you've ever carried: recipes show up once you've found all their materials.
@@ -71,13 +72,14 @@ var owned_cosmetics := {}  # style id -> true
 var tiers := {"speed": 1, "size": 1, "fuel": 1}
 var shredder_tiers := {"reach": 1, "rate": 1}
 var combat_tiers := {}  # COMBAT_TRACKS key -> tier (missing = 1)
+var eng_hotbar: Array = []  # engineer suit: building ids on the build hotbar, in key order
 
 
 ## Combat upgrades (bench). Each track's stat per tier and the cost to reach the next one;
 ## costs climb through the materials you find: iron/electrum, steel/cobalt, obsidianite,
 ## then microchips and the Arbiter's plating.
 const COMBAT_TRACKS := {
-	"armor": {"name": "Suit armor", "unit": "HP", "stats": [100.0, 125.0, 150.0, 185.0, 225.0], "costs": [
+	"armor": {"name": "Max health", "unit": "HP", "stats": [100.0, 125.0, 150.0, 185.0, 225.0], "costs": [
 		{Items.IRON: 30, Items.ELECTRUM: 10},
 		{Items.STEEL: 10, Items.COBALT: 8},
 		{Items.STEEL: 20, Items.OBSIDIANITE: 1},
@@ -91,6 +93,10 @@ const COMBAT_TRACKS := {
 		{Items.STEEL: 6, Items.DIAMOND: 3},
 		{Items.COBALT: 12, Items.OBSIDIANITE: 1},
 		{Items.MICROCHIP: 3, Items.OBSIDIANITE: 2}]},
+	"smg": {"name": "SMG power", "unit": "dmg", "stats": [7.0, 9.0, 11.5, 14.5], "costs": [
+		{Items.STEEL: 8, Items.ELECTRUM: 20},
+		{Items.COBALT: 14, Items.DIAMOND: 4},
+		{Items.MICROCHIP: 3, Items.OBSIDIANITE: 1}]},
 	"cooling": {"name": "Pistol cooling", "unit": "%/s", "stats": [45.0, 65.0, 90.0], "costs": [
 		{Items.IRON: 20, Items.ELECTRUM: 20},
 		{Items.COBALT: 10, Items.STEEL: 5}]},
@@ -99,6 +105,29 @@ const COMBAT_TRACKS := {
 		{Items.STEEL: 8, Items.DIAMOND: 4},
 		{Items.COBALT: 14, Items.OBSIDIANITE: 1},
 		{Items.MICROCHIP: 3, Items.OBSIDIANITE: 2}]},
+	# Suit tracks (shown once you own that suit).
+	"tank_armor": {"name": "Tank armor", "unit": "armor", "stats": [50.0, 75.0, 100.0, 140.0], "costs": [
+		{Items.STEEL: 10, Items.COBALT: 10},
+		{Items.STEEL: 20, Items.OBSIDIANITE: 1},
+		{Items.ADVANCED_PLATING: 1, Items.MICROCHIP: 3}]},
+	"tank_regen": {"name": "Armor regen", "unit": "/s", "stats": [2.0, 3.5, 5.5, 8.0], "costs": [
+		{Items.ELECTRUM: 25, Items.COBALT: 8},
+		{Items.DIAMOND: 8, Items.STEEL: 10},
+		{Items.MICROCHIP: 3, Items.OBSIDIANITE: 1}]},
+	"scout_dashes": {"name": "Scout dashes", "unit": "dashes", "stats": [1.0, 2.0, 3.0], "costs": [
+		{Items.STEEL: 10, Items.DIAMOND: 6},
+		{Items.OBSIDIANITE: 1, Items.MICROCHIP: 2}]},
+	"scout_recharge": {"name": "Dash recharge", "unit": "s", "stats": [4.0, 3.0, 2.2, 1.5], "costs": [
+		{Items.ELECTRUM: 25, Items.IRON: 20},
+		{Items.COBALT: 12, Items.STEEL: 8},
+		{Items.MICROCHIP: 2, Items.DIAMOND: 8}]},
+	"eng_slots": {"name": "Hotbar slots", "unit": "slots", "stats": [4.0, 6.0, 8.0, 10.0], "costs": [
+		{Items.IRON: 30, Items.ELECTRUM: 15},
+		{Items.STEEL: 10, Items.ELECTRUM: 20},
+		{Items.MICROCHIP: 2, Items.STEEL: 10}]},
+	"eng_reach": {"name": "Build reach", "unit": "m", "stats": [8.0, 11.0, 14.0], "costs": [
+		{Items.IRON: 25, Items.ELECTRUM: 20},
+		{Items.STEEL: 12, Items.DIAMOND: 4}]},
 	"cells": {"name": "Shotgun cells", "unit": "charges", "stats": [12.0, 16.0, 20.0, 26.0], "costs": [
 		{Items.IRON: 30, Items.ELECTRUM: 20},
 		{Items.STEEL: 8, Items.COBALT: 6},
@@ -174,6 +203,7 @@ func to_dict() -> Dictionary:
 	return {"drill_owned": drill_owned, "diamond_tip": diamond_tip, "shredder_diamond": shredder_diamond,
 		"refinery_unlocked": refinery_unlocked,
 		"dagger_owned": dagger_owned,
+		"smg_owned": smg_owned,
 		"shredder_hop": shredder_hop,
 		"discovered": discovered.duplicate(),
 		"fire_visited": fire_visited,
@@ -184,7 +214,7 @@ func to_dict() -> Dictionary:
 		"cosmetics": cosmetics.duplicate(),
 		"owned_cosmetics": owned_cosmetics.duplicate(),
 		"tiers": tiers.duplicate(), "shredder_tiers": shredder_tiers.duplicate(),
-		"combat_tiers": combat_tiers.duplicate()}
+		"combat_tiers": combat_tiers.duplicate(), "eng_hotbar": eng_hotbar.duplicate()}
 
 
 func from_dict(d: Dictionary) -> void:
@@ -194,6 +224,7 @@ func from_dict(d: Dictionary) -> void:
 	shredder_diamond = d.get("shredder_diamond", d.get("rig_diamond_head", false))
 	refinery_unlocked = d.get("refinery_unlocked", false)
 	dagger_owned = d.get("dagger_owned", false)
+	smg_owned = d.get("smg_owned", false)
 	shredder_hop = d.get("shredder_hop", false)
 	# Saves from before discovery: the starting ores count as found.
 	discovered = d.get("discovered", {Items.IRON: true, Items.ELECTRUM: true}).duplicate()
@@ -205,6 +236,7 @@ func from_dict(d: Dictionary) -> void:
 	blueprints = d.get("blueprints", {}).duplicate()
 	cosmetics = d.get("cosmetics", {}).duplicate()
 	owned_cosmetics = d.get("owned_cosmetics", {}).duplicate()
+	eng_hotbar = d.get("eng_hotbar", []).duplicate()
 	combat_tiers = {}
 	var ct: Dictionary = d.get("combat_tiers", {})
 	for track in COMBAT_TRACKS:

@@ -39,3 +39,4 @@ Title screen → **Text editor** lists every player-facing string in the scripts
 autosave to `text_edits.json`; write them back into the code with:
 
     python tools/apply_text_edits.py            # add --dry-run to preview
+This is just a debug feature.

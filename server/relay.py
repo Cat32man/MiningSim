@@ -19,12 +19,19 @@ Control port messages (host <-> relay):
   relay -> b"X" + joiner id (u32 LE)    that joiner went quiet; drop its link
   relay -> b"MSR1F"                     no free room / not registered (start over)
 
-Run:  python3 relay.py --secret-file /etc/miningsim-relay/secret
+Updates: with --update-dir, the relay also serves that folder over plain HTTP on TCP
+CONTROL_PORT (update-<v>.bin + manifest.json from tools/release.sh). Plain HTTP is fine:
+update files are encrypted and authenticated by the game itself. Only files in the folder
+itself are served; no listings, no subfolders.
+
+Run:  python3 relay.py --secret-file /etc/miningsim-relay/secret [--update-dir /var/www/miningsim]
 """
 
 import argparse
 import hashlib
 import hmac
+import http.server
+import threading
 import os
 import selectors
 import socket
@@ -229,15 +236,47 @@ class Relay:
         self.free.sort()
 
 
+class UpdateFiles(http.server.SimpleHTTPRequestHandler):
+    """GET/HEAD of a plain file name in the update folder; everything else is a 404."""
+
+    server_version = "miningsim-relay"
+    sys_version = ""
+
+    def send_head(self):
+        name = self.path.split("?", 1)[0].lstrip("/")
+        if not name or "/" in name or "\\" in name or name.startswith("."):
+            self.send_error(404)
+            return None
+        return super().send_head()
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
+    def log_message(self, fmt, *args):
+        log("http", self.address_string(), fmt % args)
+
+
+def serve_updates(folder, bind):
+    handler = lambda *a, **kw: UpdateFiles(*a, directory=folder, **kw)
+    httpd = http.server.ThreadingHTTPServer((bind, CONTROL_PORT), handler)
+    httpd.daemon_threads = True
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    log("serving updates from", folder, "on tcp", CONTROL_PORT)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--secret-file", required=True, help="file holding the co-op SECRET (hex)")
     ap.add_argument("--public-host", default="", help="address friends type (default: look it up)")
     ap.add_argument("--bind", default="0.0.0.0", help="listen address (127.0.0.1 for testing)")
+    ap.add_argument("--update-dir", default="", help="serve update files from here over tcp")
     args = ap.parse_args()
     secret = bytes.fromhex(open(args.secret_file).read().strip())
     if len(secret) < 16:
         sys.exit("secret too short")
+    if args.update_dir:
+        serve_updates(args.update_dir, args.bind)
     Relay(secret, args.public_host, args.bind).run()
 
 

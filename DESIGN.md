@@ -362,7 +362,7 @@ The step between the fire caves and the next biome.
 
 ## Updates
 - Version: `application/config/version` in project.godot (an integer, bump it per release). Shown on the title screen.
-- A release only changes the game-data pack, never the engine, so an update is the whole pack (~2.6 MB). `tools/release.sh` exports every build, packs the update (`--export-pack "macOS"`, which has all desktop texture formats) with scripts/tools/make_update.gd, and uploads `update-<v>.bin` + `manifest.json` to /var/www/miningsim on the server (served at https://mrossthornton.com/miningsim/).
+- A release only changes the game-data pack, never the engine, so an update is the whole pack (~2.6 MB). `tools/release.sh` exports every build, packs the update (`--export-pack "macOS"`, which has all desktop texture formats) with scripts/tools/make_update.gd, and uploads `update-<v>.bin` + `manifest.json` to /var/www/miningsim on the server. The relay serves that folder over plain HTTP on TCP 24690 (same port number as its UDP control port; the Verizon rule forwards both).
 - Update files are AES-256-CBC encrypted + HMAC-SHA256 with keys derived from the co-op secret (the pack contains the key). Wrong/altered files are refused.
 - The Updates autoload (scripts/update/updates.gd) checks on the title screen (exported builds only), saves the pack as user://update/game.pck, and offers Restart; at start-up it loads that pack over the built-in one if it's newer than the build and for the same engine version. A Godot upgrade needs new full builds (the title screen says so).
 

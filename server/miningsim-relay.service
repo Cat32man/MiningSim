@@ -4,12 +4,12 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/miningsim-relay/relay.py --secret-file ${CREDENTIALS_DIRECTORY}/secret
+ExecStart=/usr/bin/python3 /opt/miningsim-relay/relay.py --secret-file ${CREDENTIALS_DIRECTORY}/secret --update-dir /var/www/miningsim
 LoadCredential=secret:/etc/miningsim-relay/secret
 DynamicUser=yes
 Restart=on-failure
 RestartSec=5
-# Locked down: it only needs UDP sockets and outbound HTTPS (public IP lookup).
+# Locked down: it only needs its UDP/TCP ports and outbound HTTPS (public IP lookup).
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

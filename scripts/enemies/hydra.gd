@@ -34,6 +34,12 @@ var lair_key := ""
 var arena_center := Vector3.INF
 var arena_radius := 17.0
 
+## Co-op joiner: a copy that follows the host's (no AI of its own); hits go to the host.
+var puppet := false
+var net_pos := Vector3.ZERO
+var net_yaw := 0.0
+var net_hit: Callable
+
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _dead := false
 var _enraged := false
@@ -118,6 +124,9 @@ func _process(dt: float) -> void:
 func _physics_process(dt: float) -> void:
 	if _dead or not is_instance_valid(player):
 		return
+	if puppet:
+		_follow(dt)
+		return
 	if not _terrain_ready:
 		if not player.world.is_ready_around(global_position):
 			return
@@ -187,13 +196,18 @@ func _volley() -> void:
 		s.velocity = dir.rotated(Vector3.UP, yaw) * SPINE_SPEED + Vector3.UP * 0.6
 		get_parent().add_child(s)
 		s.global_position = mouth
+		_net_shot(s)
 
 
 ## Returns true if this hit killed it.
 func take_damage(amount: float, from: Vector3, at := Vector3.INF) -> bool:
 	if _dead:
 		return false
+	if net_hit.is_valid():
+		net_hit.call(self, amount, from, at)
 	health -= amount
+	if puppet:
+		health = maxf(health, 1.0)  # dies when the host's does
 	var hit_pos := at if at != Vector3.INF else global_position + Vector3(0, 1.6, 0)
 	HitFx.ichor(get_parent(), hit_pos, from, Color(1.0, 0.55, 0.15))
 	var now := Time.get_ticks_msec() / 1000.0
@@ -201,7 +215,7 @@ func take_damage(amount: float, from: Vector3, at := Vector3.INF) -> bool:
 		health <= 0.0)
 	_number_time = now
 	_flash = 1.0
-	if not _enraged and health <= MAX_HEALTH * 0.5:
+	if not _enraged and health <= MAX_HEALTH * 0.5 and not puppet:
 		_enrage()
 	if health <= 0.0:
 		_die()
@@ -209,6 +223,36 @@ func take_damage(amount: float, from: Vector3, at := Vector3.INF) -> bool:
 	if randf() < 0.3:
 		Sfx.play_3d("bug_hurt", hit_pos, get_parent(), 2.0, 0.45)
 	return false
+
+
+## Co-op: what a joiner's copy needs to look the same.
+func net_extra() -> Array:
+	return [_enraged, _rear, _swipe]
+
+
+func net_apply(x: Array) -> void:
+	_enraged = x[0]
+	_rear = maxf(_rear, x[1])
+	_swipe = maxf(_swipe, x[2])
+
+
+func net_die() -> void:
+	if not _dead:
+		_die()
+
+
+## Co-op joiner: glide after the host's copy.
+func _follow(dt: float) -> Vector3:
+	var before := global_position
+	var k := minf(dt * 12.0, 1.0)
+	global_position = global_position.lerp(net_pos, k)
+	rotation.y = lerp_angle(rotation.y, net_yaw, k)
+	return (global_position - before) / maxf(dt, 0.001)
+
+
+func _net_shot(s: Node3D) -> void:
+	if director and director.net:
+		director.net.enemy_shot(self, s)
 
 
 func _enrage() -> void:

@@ -7,6 +7,15 @@ const SMOOTH := 14.0
 var label_text := "Miner"
 var color := Color(0.3, 0.6, 0.9)
 
+## Host side: stands in for that player, so bugs can chase and hurt them.
+var peer_id := 0
+var net
+var world
+var health := 100.0
+var active := true
+var velocity := Vector3.ZERO
+var camera: Node3D  # eye height, for line-of-sight checks
+
 var _target_pos := Vector3.ZERO
 var _target_yaw := 0.0
 var _target_pitch := 0.0
@@ -32,6 +41,7 @@ func _ready() -> void:
 	_head = Node3D.new()
 	_head.position = Vector3(0, 1.6, 0)
 	add_child(_head)
+	camera = _head
 	_part(_head, _sphere(0.2), Vector3.ZERO, _mat(Color(0.75, 0.6, 0.5), 0.0, 0.7))
 	var helmet := _part(_head, _sphere(0.24), Vector3(0, 0.07, 0), _mat(color, 0.2, 0.45))
 	helmet.scale = Vector3(1, 0.75, 1)
@@ -63,6 +73,8 @@ func _ready() -> void:
 
 ## A fresh network update: where the player's feet are and where they're looking.
 func target(pos: Vector3, yaw: float, pitch: float) -> void:
+	if _has_target:
+		velocity = (pos - _target_pos) * 20.0  # updates come ~20 a second
 	_target_pos = pos
 	_target_yaw = yaw
 	_target_pitch = pitch
@@ -87,6 +99,11 @@ func _process(delta: float) -> void:
 	_body.position.y = absf(sin(_step)) * 0.05 * clampf(speed / 4.0, 0.0, 1.0)
 	_body.rotation.z = sin(_step) * 0.04 * clampf(speed / 4.0, 0.0, 1.0)
 	_lamp.light_energy = 2.5 + sin(Time.get_ticks_msec() * 0.023) * 0.08
+
+
+func take_damage(amount: float, from: Vector3) -> void:
+	if net:
+		net.hurt_peer(peer_id, amount, from)
 
 
 static func _mat(c: Color, metal: float, rough: float) -> StandardMaterial3D:

@@ -3,8 +3,10 @@ extends Node
 ## computer. The host's world is the real one: a joiner gets its seed, dug-out chunks and
 ## buildings, then every dig anyone makes is replayed for everyone else. The host runs all
 ## machines and sends their contents out; whatever a joiner changes in one (items moved,
-## a craft started, a harvester driven) goes back to the host. Bugs and progress aren't
-## shared yet.
+## a craft started, a harvester driven) goes back to the host. The host also runs every bug
+## and boss (they go for whoever's closest); joiners see copies that follow them, and their
+## hits go to the host's. Each player's copy of a projectile only hurts that player.
+## Progress isn't shared yet.
 
 signal joined(data: Dictionary)  # client: the host's world arrived
 signal failed(text: String)  # client: couldn't connect
@@ -12,6 +14,11 @@ signal host_left  # client: the host closed the game
 signal players_changed(count: int)
 
 const RemotePlayer = preload("res://scripts/net/remote_player.gd")
+const Bug = preload("res://scripts/enemies/bug.gd")
+const Hydra = preload("res://scripts/enemies/hydra.gd")
+const Arbiter = preload("res://scripts/enemies/arbiter.gd")
+const Shot = preload("res://scripts/enemies/arbiter_shot.gd")
+const Spine = preload("res://scripts/enemies/spine.gd")
 const ADDRESS := "127.0.0.1"
 const PORT := 24680
 const MAX_PLAYERS := 4
@@ -20,6 +27,7 @@ const JOIN_TIMEOUT := 6.0
 const MACHINE_RATE := 10.0  # machine syncs a second
 const HOLD := 0.6  # a joiner ignores the host's copy this long after changing a machine
 const POD := 0  # sync key for the drop pod's storage (buildings count up from 1)
+const ENEMY_RATE := 15.0
 const COLORS := [Color(0.95, 0.55, 0.2), Color(0.3, 0.6, 0.95), Color(0.4, 0.85, 0.45), Color(0.85, 0.4, 0.85)]
 
 var world  # VoxelWorld, once the game is running
@@ -27,6 +35,7 @@ var player
 var avatar_parent: Node3D
 var grid  # PowerGrid
 var pod
+var director
 var snapshot: Callable  # host: returns the world data a joiner needs
 var is_host := false
 var _avatars := {}  # peer id -> RemotePlayer
@@ -36,6 +45,10 @@ var _machine_t := 0.0
 var _sent := {}  # host: key -> bytes last sent out
 var _known := {}  # joiner: key -> bytes of our copy as the host last left it
 var _hold := {}  # joiner: key -> seconds left ignoring the host (we just changed it)
+var _enemy_t := 0.0
+var _next_enemy := 1
+var _enemies_by_id := {}  # host: id -> bug/boss
+var _puppets := {}  # joiner: id -> copy of the host's bug/boss
 
 
 func _ready() -> void:
@@ -101,11 +114,16 @@ func _process(delta: float) -> void:
 	if not active() or player == null or not is_instance_valid(player) or not player.active:
 		return
 	_sync_machines(delta)
+	if is_host:
+		_enemy_t -= delta
+		if _enemy_t <= 0.0:
+			_enemy_t = 1.0 / ENEMY_RATE
+			_sync_enemies()
 	_send_t -= delta
 	if _send_t <= 0.0:
 		_send_t = 1.0 / SEND_RATE
 		var pitch: float = player.camera.rotation.x if player.camera else 0.0
-		_state.rpc(player.global_position, player.rotation.y, pitch)
+		_state.rpc(player.global_position, player.rotation.y, pitch, player.health)
 
 
 # --- Joining ------------------------------------------------------------------------
@@ -136,7 +154,7 @@ func _on_peer_left(id: int) -> void:
 # --- Players ------------------------------------------------------------------------
 
 @rpc("any_peer", "unreliable_ordered")
-func _state(pos: Vector3, yaw: float, pitch: float) -> void:
+func _state(pos: Vector3, yaw: float, pitch: float, health: float) -> void:
 	var id := multiplayer.get_remote_sender_id()
 	var av = _avatars.get(id)
 	if av == null or not is_instance_valid(av):
@@ -145,11 +163,177 @@ func _state(pos: Vector3, yaw: float, pitch: float) -> void:
 		av = RemotePlayer.new()
 		av.label_text = "Host" if id == 1 else "Miner"
 		av.color = COLORS[0] if id == 1 else COLORS[1 + absi(id) % (COLORS.size() - 1)]
+		av.peer_id = id
+		av.net = self
+		av.world = world
 		avatar_parent.add_child(av)
 		_avatars[id] = av
 		print("Co-op: now showing player %d" % id)
 		players_changed.emit(player_count())
 	av.target(pos, yaw, pitch)
+	av.health = health
+
+
+## Host: a bug or boss hit a joiner's stand-in; the hit lands on their own computer.
+func hurt_peer(id: int, amount: float, from: Vector3) -> void:
+	if active():
+		_hurt.rpc_id(id, amount, from)
+
+
+@rpc("authority", "reliable")
+func _hurt(amount: float, from: Vector3) -> void:
+	if player and is_instance_valid(player):
+		player.take_damage(amount, from)
+
+
+# --- Bugs and bosses --------------------------------------------------------------
+
+func _tag(e: Node) -> String:
+	if e.get_script() == Bug:
+		return "bug:" + e.kind
+	if e.get_script() == Hydra:
+		return "hydra"
+	if e.get_script() == Arbiter:
+		return "arbiter"
+	return ""
+
+
+## The closest living player to `p` (this computer's player if nobody else is).
+func _nearest(p: Vector3):
+	var best = player
+	var best_d := INF
+	for c in [player] + _avatars.values():
+		if is_instance_valid(c) and c.health > 0.0 and c.active:
+			var d: float = c.global_position.distance_squared_to(p)
+			if d < best_d:
+				best_d = d
+				best = c
+	return best
+
+
+## Host: every bug goes for whoever's closest, and the joiners get where they all are.
+func _sync_enemies() -> void:
+	var out := {}
+	_enemies_by_id.clear()
+	for e in get_tree().get_nodes_in_group("bugs"):
+		var tag := _tag(e)
+		if tag == "":
+			continue
+		if not e.has_meta("nid"):
+			e.set_meta("nid", _next_enemy)
+			_next_enemy += 1
+		var id: int = e.get_meta("nid")
+		_enemies_by_id[id] = e
+		if not e._dead:
+			e.player = _nearest(e.global_position)
+		out[id] = [tag, e.global_position, e.rotation.y, e.health, e._dead,
+			e.net_extra() if e.has_method("net_extra") else null]
+	_enemies.rpc(out)
+
+
+@rpc("authority", "unreliable_ordered")
+func _enemies(out: Dictionary) -> void:
+	if avatar_parent == null or not is_instance_valid(avatar_parent) or player == null:
+		return
+	for id in out:
+		var d: Array = out[id]
+		var p = _puppets.get(id)
+		if p == null or not is_instance_valid(p):
+			if d[4]:
+				continue  # already dead before we saw it
+			p = _make_puppet(id, d[0], d[1], d[2])
+			if p == null:
+				continue
+		p.net_pos = d[1]
+		p.net_yaw = d[2]
+		if not p._dead:
+			p.health = maxf(d[3], 1.0)
+		if d[5] != null:
+			p.net_apply(d[5])
+		if d[4] and not p._dead:
+			p.net_die()
+			_boss_over(p, true)
+	for id in _puppets.keys():
+		if out.has(id):
+			continue
+		var p = _puppets[id]
+		if is_instance_valid(p) and not p._dead:
+			_boss_over(p, false)  # e.g. a boss going back to sleep
+			p.queue_free()
+		_puppets.erase(id)
+
+
+func _make_puppet(id: int, tag: String, pos: Vector3, yaw: float) -> Node3D:
+	var e
+	if tag.begins_with("bug:"):
+		e = Bug.new()
+		e.kind = tag.trim_prefix("bug:")
+	elif tag == "hydra":
+		e = Hydra.new()
+	elif tag == "arbiter":
+		e = Arbiter.new()
+	else:
+		return null
+	e.player = player
+	e.director = director
+	e.puppet = true
+	e.net_hit = _send_hit
+	e.net_pos = pos
+	e.net_yaw = yaw
+	e.set_meta("nid", id)
+	avatar_parent.add_child(e)
+	e.global_position = pos
+	e.rotation.y = yaw
+	_puppets[id] = e
+	if e.is_in_group("boss") and director:
+		director.boss = e
+		director.boss_appeared.emit(e)
+	return e
+
+
+func _boss_over(p: Node3D, killed: bool) -> void:
+	if director and director.boss == p:
+		director.boss = null
+		director.boss_gone.emit(p, killed)
+
+
+## Joiner: we hit a copy, so the host's bug takes it.
+func _send_hit(e: Node3D, amount: float, from: Vector3, at: Vector3) -> void:
+	if active():
+		_enemy_hit.rpc_id(1, e.get_meta("nid", -1), amount, from, at)
+
+
+@rpc("any_peer", "reliable")
+func _enemy_hit(id: int, amount: float, from: Vector3, at: Vector3) -> void:
+	var e = _enemies_by_id.get(id)
+	if is_host and e and is_instance_valid(e):
+		e.take_damage(amount, from, at)
+
+
+## Host: a bug or boss fired; every joiner gets a copy that can hit them.
+func enemy_shot(shooter: Node3D, s: Node3D) -> void:
+	if not active() or not is_host:
+		return
+	var big: bool = s.get("big") == true
+	_shot.rpc(shooter.get_meta("nid", -1), "spine" if s.get_script() == Spine else "shot",
+		s.global_position, s.velocity, big, s.damage)
+
+
+@rpc("authority", "reliable")
+func _shot(id: int, kind: String, pos: Vector3, vel: Vector3, big: bool, damage: float) -> void:
+	if avatar_parent == null or not is_instance_valid(avatar_parent):
+		return
+	var s = Spine.new() if kind == "spine" else Shot.new()
+	var from = _puppets.get(id)
+	if from and is_instance_valid(from):
+		s.shooter = from
+	if kind != "spine":
+		s.big = big
+		s.target = player
+	s.damage = damage
+	s.velocity = vel
+	avatar_parent.add_child(s)
+	s.global_position = pos
 
 
 # --- Buildings ----------------------------------------------------------------------

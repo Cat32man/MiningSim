@@ -46,6 +46,12 @@ var target_building: Node3D
 var home := Vector3.INF
 var swarm_record = null  # the death swarm this guard belongs to
 
+## Co-op joiner: a copy that follows the host's (no AI of its own); hits go to the host.
+var puppet := false
+var net_pos := Vector3.ZERO
+var net_yaw := 0.0
+var net_hit: Callable
+
 var _s: Dictionary
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _chasing := false
@@ -132,6 +138,10 @@ func _process(dt: float) -> void:
 
 func _physics_process(dt: float) -> void:
 	if _dead or not is_instance_valid(player):
+		return
+	if puppet:
+		var v := _follow(dt)
+		_animate(dt, Vector2(v.x, v.z).length() / _s["scale"])
 		return
 	# Same rule as the player: no physics until the ground has collision.
 	if not _terrain_ready:
@@ -272,7 +282,11 @@ func _face(dir: Vector3, dt: float) -> void:
 func take_damage(amount: float, from: Vector3, at := Vector3.INF) -> bool:
 	if _dead:
 		return false
+	if net_hit.is_valid():
+		net_hit.call(self, amount, from, at)
 	health -= amount
+	if puppet:
+		health = maxf(health, 1.0)  # dies when the host's does
 	_chasing = true
 	var hit_pos := at if at != Vector3.INF else global_position + Vector3(0, 0.35 * _s["scale"], 0)
 	var killed := health <= 0.0
@@ -289,6 +303,20 @@ func take_damage(amount: float, from: Vector3, at := Vector3.INF) -> bool:
 	else:
 		Sfx.play_3d("bug_hurt", global_position, get_parent(), 0.0, randf_range(0.9, 1.2) / sqrt(_s["scale"]))
 	return killed
+
+
+func net_die() -> void:
+	if not _dead:
+		_die()
+
+
+## Co-op joiner: glide after the host's copy.
+func _follow(dt: float) -> Vector3:
+	var before := global_position
+	var k := minf(dt * 12.0, 1.0)
+	global_position = global_position.lerp(net_pos, k)
+	rotation.y = lerp_angle(rotation.y, net_yaw, k)
+	return (global_position - before) / maxf(dt, 0.001)
 
 
 func _die() -> void:

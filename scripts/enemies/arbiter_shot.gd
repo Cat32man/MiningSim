@@ -126,7 +126,8 @@ func _physics_process(dt: float) -> void:
 func _explode(at: Vector3) -> void:
 	var parent := get_parent()
 	Sfx.play_3d("shotgun", at, parent, 8.0, 0.55)
-	if is_instance_valid(target) and target.has_method("take_damage"):
+	# Only this computer's own player: in co-op every player has a copy of the bomb.
+	if is_instance_valid(target) and target.is_in_group("player"):
 		var d: float = (target.global_position + Vector3(0, 0.9, 0)).distance_to(at)
 		if d < BOMB_RADIUS:
 			target.take_damage(damage * (1.0 - d / BOMB_RADIUS * 0.7), at)

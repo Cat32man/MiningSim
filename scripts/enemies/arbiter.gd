@@ -47,6 +47,12 @@ var arena_radius := 15.0
 ## Where it flees to (the Seal); INF = straight up.
 var seal_point := Vector3.INF
 
+## Co-op joiner: a copy that follows the host's (no AI of its own); hits go to the host.
+var puppet := false
+var net_pos := Vector3.ZERO
+var net_yaw := 0.0
+var net_hit: Callable
+
 var _dead := false
 var _enraged := false
 var _terrain_ready := false
@@ -160,6 +166,11 @@ func _process(dt: float) -> void:
 
 func _physics_process(dt: float) -> void:
 	if _dead or not is_instance_valid(player):
+		return
+	if puppet:
+		_state_t += dt
+		_follow(dt)
+		_show_tele(_state == WINDUP)
 		return
 	if not _terrain_ready:
 		if not player.world.is_ready_around(global_position):
@@ -360,6 +371,7 @@ func _fire_burst() -> void:
 	s.velocity = (target + spread - from).normalized() * BURST_SPEED
 	get_parent().add_child(s)
 	s.global_position = from
+	_net_shot(s)
 	Sfx.play_3d("pistol", from, get_parent(), 0.0, randf_range(0.6, 0.75))
 
 
@@ -373,6 +385,7 @@ func _fire_bomb() -> void:
 	s.velocity = (player.global_position + Vector3(0, 1.0, 0) - from).normalized() * BOMB_SPEED
 	get_parent().add_child(s)
 	s.global_position = from
+	_net_shot(s)
 	Sfx.play_3d("shotgun", from, get_parent(), 4.0, 0.45)
 
 
@@ -391,9 +404,13 @@ func _show_tele(on: bool) -> void:
 func take_damage(amount: float, from: Vector3, at := Vector3.INF) -> bool:
 	if _dead:
 		return false
+	if net_hit.is_valid():
+		net_hit.call(self, amount, from, at)
 	if _state == STUNNED:
 		amount *= STUN_DAMAGE_MULT
 	health -= amount
+	if puppet:
+		health = maxf(health, 1.0)  # flees when the host's does
 	var hit_pos := at if at != Vector3.INF else global_position + Vector3(0, 1.4, 0)
 	HitFx.ichor(get_parent(), hit_pos, from, GREEN)
 	var now := Time.get_ticks_msec() / 1000.0
@@ -410,6 +427,42 @@ func take_damage(amount: float, from: Vector3, at := Vector3.INF) -> bool:
 		_flee()
 		return true
 	return false
+
+
+## Co-op: what a joiner's copy needs to look the same.
+func net_extra() -> Array:
+	return [_state, _state_t, _chain, _chained, _dash_dir, _dash_left, _shots_left, _enraged, seal_point]
+
+
+func net_apply(x: Array) -> void:
+	_state = x[0]
+	_state_t = x[1]
+	_chain = x[2]
+	_chained = x[3]
+	_dash_dir = x[4]
+	_dash_left = x[5]
+	_shots_left = x[6]
+	_enraged = x[7]
+	seal_point = x[8]
+
+
+func net_die() -> void:
+	if not _dead:
+		_flee()
+
+
+## Co-op joiner: glide after the host's copy.
+func _follow(dt: float) -> Vector3:
+	var before := global_position
+	var k := minf(dt * 12.0, 1.0)
+	global_position = global_position.lerp(net_pos, k)
+	rotation.y = lerp_angle(rotation.y, net_yaw, k)
+	return (global_position - before) / maxf(dt, 0.001)
+
+
+func _net_shot(s: Node3D) -> void:
+	if director and director.net:
+		director.net.enemy_shot(self, s)
 
 
 ## Beaten: it sparks, rises, and phases out through the Seal (or straight up).

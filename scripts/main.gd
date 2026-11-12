@@ -214,6 +214,7 @@ func _join_coop() -> void:
 	net.joined.connect(func(data: Dictionary):
 		_leave_menu()
 		_start_game(-1, data)
+		player.position += Vector3(2.5, 0, 0)  # not right on top of the host
 		director.process_mode = Node.PROCESS_MODE_DISABLED  # the host's bugs aren't shared yet
 		_hook_net())
 	net.host_left.connect(func():
@@ -234,6 +235,8 @@ func _hook_net() -> void:
 	net.grid = grid
 	net.pod = pod
 	grid.net = net
+	net.director = director
+	director.net = net
 	if not net.is_host:
 		net.prime()
 	world.edited.connect(net.send_edit)
@@ -730,6 +733,17 @@ func _process(delta: float) -> void:
 			grid.add(b)
 			if not net.is_host:
 				pod.storage.add(Items.IRON, 7)
+			# Bugs: the host drops one by the joiner, the joiner shoots it, both report.
+			get_tree().create_timer(8.0).timeout.connect(func():
+				if net.is_host:
+					for av in net._avatars.values():
+						director.spawn_bug(av.global_position + Vector3(2, 0.5, 0)).aggro = true
+				else:
+					for e in get_tree().get_nodes_in_group("bugs"):
+						e.take_damage(10.0, player.global_position))
+			get_tree().create_timer(12.0).timeout.connect(func():
+				print("Co-op bugs: health %.0f, bugs %s" % [player.health,
+					get_tree().get_nodes_in_group("bugs").map(func(e): return [e.health, e.get("puppet")])]))
 			for wait in [3.0, 9.0]:
 				get_tree().create_timer(wait).timeout.connect(func():
 					print("Co-op test: %d buildings %s, pod iron %d" % [grid.buildings.size(),

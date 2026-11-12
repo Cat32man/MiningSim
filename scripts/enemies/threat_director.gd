@@ -54,6 +54,7 @@ var world
 var player
 var progress
 var grid
+var net  # NetSession in co-op
 
 var mined := {}  # Vector3i region -> samples removed
 ## Bugs guarding each body: {pos, count, age, spawned, spilled}.

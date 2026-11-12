@@ -32,6 +32,7 @@ var state := State.BROKEN
 var cargo = Inventory.new(CARGO_SLOTS, "Cargo cage")
 var orders: Array = []  # supply keys, delivered on the next trip down
 var _t := 0.0
+var puppet := false  # co-op joiner: the host runs trips and the market
 var _tab := 0  # 0 cargo, 1 shop
 var _last_sale := ""
 
@@ -141,16 +142,21 @@ func get_inventories() -> Array:
 
 
 func _process(dt: float) -> void:
-	if progress:
+	if progress and not puppet:
 		progress.market.tick(dt)
 	match state:
 		State.UP:
 			_t += dt
 			if _t >= TRIP_TIME:
-				_arrive_top()
+				if puppet:
+					_t = TRIP_TIME  # waits up top for the host's copy to arrive
+				else:
+					_arrive_top()
 		State.DOWN:
 			_t += dt
-			if _t >= TRIP_TIME:
+			if _t >= TRIP_TIME and puppet:
+				_t = TRIP_TIME
+			elif _t >= TRIP_TIME:
 				_t = 0.0
 				state = State.READY
 				var waiting: Array = []

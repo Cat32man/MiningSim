@@ -43,6 +43,11 @@ const JOIN_TIMEOUT := 10.0
 const MACHINE_RATE := 10.0  # machine syncs a second
 const HOLD := 0.6  # a joiner ignores the host's copy this long after changing a machine
 const POD := 0  # sync key for the drop pod's storage (buildings count up from 1)
+const ELEVATOR := -1
+const PROGRESS := -2  # shared unlocks, tiers and credits
+const MARKET := -3  # sale prices (host only, every few seconds)
+const MARKET_EVERY := 3.0
+const CACHE_BASE := 1000000  # caches and bodies: CACHE_BASE + cache id
 const ENEMY_RATE := 15.0
 const COLORS := [Color(0.95, 0.55, 0.2), Color(0.3, 0.6, 0.95), Color(0.4, 0.85, 0.45), Color(0.85, 0.4, 0.85)]
 
@@ -52,6 +57,11 @@ var avatar_parent: Node3D
 var grid  # PowerGrid
 var pod
 var director
+var elevator
+var progress
+var caches: Node3D  # parent of caches and bodies (main's "Caches")
+var drop_cache: Callable  # main.drop_cache(pos, stacks)
+var spawn_cache: Callable  # main.spawn_cache(kind, pos, slots, cid) -> node
 var snapshot: Callable  # host: returns the world data a joiner needs
 var is_host := false
 var _avatars := {}  # peer id -> RemotePlayer
@@ -65,6 +75,9 @@ var _enemy_t := 0.0
 var _next_enemy := 1
 var _enemies_by_id := {}  # host: id -> bug/boss
 var _puppets := {}  # joiner: id -> copy of the host's bug/boss
+var _next_cache := 1
+var _market_t := 0.0
+var _progress_seen := {}  # joiner: shared progress as the host last sent it
 var _secret := PackedByteArray()
 var _challenges := {}  # host: peer id -> random bytes it must sign
 var _joined := false  # joiner: the host's world has arrived
@@ -613,12 +626,101 @@ func _removed(nid: int) -> void:
 		grid.net_despawn(nid)
 
 
-## What a joiner can change in a machine (contents, health, where it stands).
+## What a joiner can change in a machine (contents, health, where it stands), the elevator,
+## shared progress or a cache.
 func _blob(key: int):
 	if key == POD:
 		return [pod.storage.to_data()] if pod else null
+	if key == ELEVATOR:
+		if elevator == null:
+			return null
+		var e: Dictionary = elevator.get_state()
+		e.erase("t")  # the trip clock runs on its own everywhere
+		return [e]
+	if key == PROGRESS:
+		return [progress.shared_dict()] if progress else null
+	if key == MARKET:
+		return [progress.market.to_dict()] if progress else null
+	if key >= CACHE_BASE:
+		var c = _cache(key - CACHE_BASE)
+		return [c.inv.to_data()] if c else null
 	var b = grid.by_nid(key)
 	return [b.get_state(), b.hp, b.transform] if b else null
+
+
+# --- Caches and bodies --------------------------------------------------------------
+
+## A cache's id, given one if it has none (host).
+func cache_id(c: Node) -> int:
+	if not c.has_meta("cid"):
+		c.set_meta("cid", _next_cache)
+		_next_cache += 1
+	_next_cache = maxi(_next_cache, int(c.get_meta("cid")) + 1)
+	return c.get_meta("cid")
+
+
+func _cache(cid: int):
+	if caches == null:
+		return null
+	for c in caches.get_children():
+		if not c.is_queued_for_deletion() and c.get_meta("cid", 0) == cid:
+			return c
+	return null
+
+
+func cache_state(c: Node) -> Dictionary:
+	var s: Dictionary = c.get_state()
+	s["cid"] = cache_id(c)
+	return s
+
+
+## Host: a new cache or body; everyone gets one just like it.
+func cache_added(c: Node) -> void:
+	cache_id(c)
+	if active() and is_host:
+		_cache_new.rpc(cache_state(c))
+
+
+## Joiner: ask the host to leave items here (a body when we die, or a dropped pile).
+func request_cache(kind: String, pos: Vector3, stacks: Array) -> void:
+	if active():
+		_cache_req.rpc_id(1, kind, pos, stacks)
+
+
+func request_death_swarm(pos: Vector3) -> void:
+	if active():
+		_death_swarm_req.rpc_id(1, pos)
+
+
+@rpc("any_peer", "reliable")
+func _cache_req(kind: String, pos: Vector3, stacks: Array) -> void:
+	if not is_host:
+		return
+	if kind == "body":
+		spawn_cache.call("body", pos, stacks, 0)
+	else:
+		drop_cache.call(pos, stacks)
+
+
+@rpc("any_peer", "reliable")
+func _death_swarm_req(pos: Vector3) -> void:
+	if is_host and director:
+		director.add_death_swarm(pos)
+
+
+@rpc("authority", "reliable")
+func _cache_new(s: Dictionary) -> void:
+	if spawn_cache.is_valid() and _cache(s["cid"]) == null:
+		spawn_cache.call(s.get("kind", "cache"), s["pos"], s.get("slots", []), s["cid"])
+		_known[CACHE_BASE + int(s["cid"])] = var_to_bytes(_blob(CACHE_BASE + int(s["cid"])))
+
+
+@rpc("authority", "reliable")
+func _cache_gone(cid: int) -> void:
+	var c = _cache(cid)
+	if c:
+		c.queue_free()
+	_known.erase(CACHE_BASE + cid)
 
 
 ## Joiner: remember the world as the host sent it, so any later change counts as ours.
@@ -626,12 +728,22 @@ func prime() -> void:
 	if grid:
 		for k in _keys():
 			_known[k] = var_to_bytes(_blob(k))
+	if progress:
+		_progress_seen = progress.shared_dict()
 
 
 func _keys() -> Array:
-	var out: Array = [POD]
+	var out: Array = [POD, ELEVATOR, PROGRESS]
 	for b in grid.buildings:
 		out.append(b.net_id)
+	if caches:
+		for c in caches.get_children():
+			if c.is_queued_for_deletion():
+				continue
+			if is_host:
+				out.append(CACHE_BASE + cache_id(c))
+			elif c.has_meta("cid"):
+				out.append(CACHE_BASE + int(c.get_meta("cid")))
 	return out
 
 
@@ -646,33 +758,88 @@ func _sync_machines(delta: float) -> void:
 	_machine_t = 1.0 / MACHINE_RATE
 	if is_host:
 		var changes := {}
-		for k in _keys():
+		var keys := _keys()
+		_market_t -= 1.0 / MACHINE_RATE
+		if _market_t <= 0.0:
+			_market_t = MARKET_EVERY
+			keys.append(MARKET)  # prices drift every frame; a few seconds is plenty
+		for k in keys:
 			var s = _blob(k)
+			if s == null:
+				continue
 			var bytes := var_to_bytes(s)
 			if _sent.get(k) != bytes:
 				_sent[k] = bytes
-				if k != POD:
+				if k > POD and k < CACHE_BASE:
 					s.append(grid.by_nid(k).power_ratio)
+				elif k == ELEVATOR:
+					s.append(elevator._t)
 				changes[k] = s
+		# Caches that are gone (emptied or crumbled) go for everyone.
+		for k in _sent.keys():
+			if k >= CACHE_BASE and not keys.has(k):
+				_sent.erase(k)
+				_cache_gone.rpc(k - CACHE_BASE)
 		if not changes.is_empty():
 			_machines.rpc(changes)
 	else:
 		# Anything different from what the host last sent is our doing: send it back.
-		for k in _keys():
+		var keys := _keys()
+		for k in keys:
 			var s = _blob(k)
+			if s == null:
+				continue
 			var bytes := var_to_bytes(s)
 			if not _known.has(k):
 				_known[k] = bytes
 			elif _known[k] != bytes:
 				_known[k] = bytes
 				_hold[k] = HOLD
+				if k == PROGRESS:
+					s.append(_progress_seen)  # the host merges what changed since
+					_progress_seen = progress.shared_dict()
 				_machine_edit.rpc_id(1, k, s)
+		# A cache we emptied (and freed) here: empty it at the host too.
+		for k in _known.keys():
+			if k >= CACHE_BASE and not keys.has(k):
+				_known.erase(k)
+				_machine_edit.rpc_id(1, k, [[]])
 
 
 func _apply_blob(k: int, s: Array) -> void:
 	if k == POD:
 		if pod:
 			pod.storage.from_data(s[0])
+		return
+	if k == ELEVATOR:
+		if elevator:
+			var e: Dictionary = s[0].duplicate()
+			e["t"] = s[1] if s.size() > 1 else elevator._t
+			elevator.apply_state(e)
+		return
+	if k == PROGRESS:
+		if progress:
+			if is_host:
+				progress.merge_change(s[1] if s.size() > 1 else {}, s[0])
+			else:
+				progress.apply_shared(s[0])
+				_progress_seen = progress.shared_dict()
+		return
+	if k == MARKET:
+		if progress:
+			progress.market.from_dict(s[0])
+		return
+	if k >= CACHE_BASE:
+		var c = _cache(k - CACHE_BASE)
+		if c:
+			if s[0].is_empty():
+				for i in c.inv.slots.size():
+					c.inv.slots[i] = null  # all taken
+				c.inv.changed.emit()
+			else:
+				c.inv.from_data(s[0])
+			if is_host and c.inv.is_empty():
+				c.queue_free()  # taken: the next sync tells everyone
 		return
 	var b = grid.by_nid(k)
 	if b == null:

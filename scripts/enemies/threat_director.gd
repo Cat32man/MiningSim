@@ -128,13 +128,35 @@ func _process(dt: float) -> void:
 	if not _pending.is_empty():
 		_pending["t"] -= dt
 		if _pending["t"] <= 0.0:
+			var keep = player
+			if is_instance_valid(_pending.get("focus")):
+				player = _pending["focus"]  # spawn out of that player's sight
 			_send(_pending)
+			player = keep
 			_pending = {}
 		return
 	_timer -= dt
 	if _timer > 0.0:
 		return
 	_timer = SPAWN_INTERVAL * randf_range(0.7, 1.3)
+	# Co-op: each roll happens around one living player, picked at random.
+	var keep = player
+	player = _players().pick_random()
+	_roll_spawn()
+	player = keep
+
+
+## The local player plus, in co-op, every living joiner (their stand-ins on the host).
+func _players() -> Array:
+	var out: Array = [player]
+	if net:
+		for av in net._avatars.values():
+			if is_instance_valid(av) and av.health > 0.0:
+				out.append(av)
+	return out
+
+
+func _roll_spawn() -> void:
 	var at: Vector3 = player.global_position
 	if wave_cd > 0.0 and _near_base(at):
 		return  # a quiet spell at home after the last wave
@@ -148,7 +170,7 @@ func _process(dt: float) -> void:
 	var size := clampi(1 + roundi(t * randf_range(2.0, 5.0)), 1, cap - live)
 	if wave_cd > 0.0:
 		size = mini(size, WARN_SIZE - 1)
-	var group := {"at": at, "size": size, "target": null, "t": 0.0, "threat": t}
+	var group := {"at": at, "size": size, "target": null, "t": 0.0, "threat": t, "focus": player}
 	var machine := _pick_raid_target(at) if wave_cd <= 0.0 else null
 	if machine and randf() < RAID_CHANCE:
 		group["at"] = machine.global_position
@@ -382,8 +404,11 @@ func _tick_death_swarms(dt: float) -> void:
 		if rec["count"] <= 0:
 			death_swarms.erase(rec)
 			continue
-		var d: float = player.global_position.distance_to(rec["pos"])
-		if not rec["spawned"] and d < DEATH_SWARM_SPAWN and player.active and world.is_ready_around(rec["pos"]):
+		var d := INF  # the closest player decides
+		for p in _players():
+			if p.active:
+				d = minf(d, p.global_position.distance_to(rec["pos"]))
+		if not rec["spawned"] and d < DEATH_SWARM_SPAWN and world.is_ready_around(rec["pos"]):
 			rec["spawned"] = true
 			# Only as many as the area has room for; the rest wait for the next visit.
 			for i in mini(rec["count"], MAX_NEARBY - _bugs_near(rec["pos"])):

@@ -205,7 +205,9 @@ func _open_coop(bind := "*") -> void:
 		return
 	net.snapshot = func(): return {"seed": world.world_seed,
 		"chunks": world.export_modified(), "net_edits": world.export_pending(),
-		"buildings": grid.get_state(), "pod_storage": pod.storage.to_data()}
+		"buildings": grid.get_state(), "pod_storage": pod.storage.to_data(),
+		"progress": progress.to_dict(), "elevator": elevator.get_state(),
+		"caches": _live_caches().map(func(c): return net.cache_state(c))}
 	net.players_changed.connect(func(n: int): player._flash("%d players" % n))
 	net.relay_ready.connect(func(_a): pause_menu.set_status(_coop_status()))
 	_hook_net()
@@ -265,6 +267,12 @@ func _hook_net() -> void:
 	net.grid = grid
 	net.pod = pod
 	grid.net = net
+	net.elevator = elevator
+	net.progress = progress
+	net.caches = bodies
+	net.drop_cache = drop_cache
+	net.spawn_cache = spawn_cache
+	elevator.puppet = not net.is_host
 	net.director = director
 	director.net = net
 	if not net.is_host:
@@ -531,25 +539,28 @@ func _on_player_died() -> void:
 	_death_pos = player.global_position
 	var lines: Array[String] = []
 	var dist := roundi(player.global_position.distance_to(POD_POS))
+	var joiner: bool = net != null and not net.is_host
 	if not player.backpack.is_empty():
-		var body := BodyMarker.new()
-		body.kind = "body"
-		body.inv.from_data(player.backpack.to_data())
+		var at: Vector3 = player.global_position - Vector3(0, 0.85, 0)
+		var count := _live_bodies().size() + 1  # counted first: spawn_cache crumbles the oldest
+		if joiner:
+			net.request_cache("body", at, player.backpack.to_data())  # the host's copy is the real one
+		else:
+			spawn_cache("body", at, player.backpack.to_data())
 		for i in player.backpack.slots.size():
 			player.backpack.slots[i] = null
 		player.backpack.changed.emit()
-		bodies.add_child(body)
-		body.global_position = player.global_position - Vector3(0, 0.85, 0)
 		lines.append("Your gear is on your body, %d m from the pod." % dist)
-		var alive := _live_bodies()
-		if alive.size() > MAX_BODIES:
-			alive[0].queue_free()
+		if count > MAX_BODIES:
 			lines.append("Your oldest body crumbled.")
-		elif alive.size() == MAX_BODIES:
+		elif count == MAX_BODIES:
 			lines.append("Next death destroys your oldest body.")
 	else:
 		lines.append("Nothing was lost.")
-	director.add_death_swarm(player.global_position)
+	if joiner:
+		net.request_death_swarm(player.global_position)
+	else:
+		director.add_death_swarm(player.global_position)
 	lines.append("Bugs are gathering at your body.")
 	_mark_oldest_body()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -609,6 +620,10 @@ func _mark_oldest_body() -> void:
 ## Leaves a pile of item stacks in the world (removed containers, refunds that didn't fit,
 ## converted rigs). Splits across several caches if it's a lot.
 func drop_cache(pos: Vector3, stacks: Array) -> void:
+	if net and not net.is_host:
+		net.request_cache("cache", pos, stacks)  # the host makes it, so everyone has the same one
+		return
+	var made: Array = []
 	var cache = null
 	for st in stacks:
 		if st == null or st.get("count", 0) <= 0:
@@ -619,6 +634,30 @@ func drop_cache(pos: Vector3, stacks: Array) -> void:
 			bodies.add_child(cache)
 			cache.global_position = pos + Vector3(randf_range(-0.4, 0.4), 0, randf_range(-0.4, 0.4))
 			cache.inv.add_stack(st.duplicate())
+			made.append(cache)
+	if net:
+		for c in made:
+			net.cache_added(c)
+
+
+## A body or cache with these slots. Co-op: the host tells everyone; `cid` is the host's id
+## for one that came over the network.
+func spawn_cache(kind: String, pos: Vector3, slots: Array, cid := 0) -> Node3D:
+	var c := BodyMarker.new()
+	c.kind = kind
+	c.inv.from_data(slots)
+	if cid > 0:
+		c.set_meta("cid", cid)
+	bodies.add_child(c)
+	c.global_position = pos
+	if kind == "body":
+		var alive := _live_bodies()
+		if alive.size() > MAX_BODIES and (net == null or net.is_host):
+			alive[0].queue_free()  # the oldest crumbles (the sync tells joiners)
+		_mark_oldest_body()
+	if net and net.is_host:
+		net.cache_added(c)
+	return c
 
 
 func _load_caches(data: Dictionary) -> void:
@@ -627,6 +666,8 @@ func _load_caches(data: Dictionary) -> void:
 		c.kind = s.get("kind", "cache")
 		c.inv.from_data(s.get("slots", []))
 		c.position = s["pos"]
+		if s.has("cid"):
+			c.set_meta("cid", s["cid"])
 		bodies.add_child(c)
 	# Saves from before slot inventories: bodies held {material: count} + battery charges.
 	var mat_to_item := {1: Items.IRON, 2: Items.ELECTRUM, 5: Items.DIAMOND}
@@ -763,6 +804,25 @@ func _process(delta: float) -> void:
 			grid.add(b)
 			if not net.is_host:
 				pod.storage.add(Items.IRON, 7)
+			# Shared stuff: the joiner unlocks, earns, repairs the elevator and drops a cache;
+			# then takes the cache back. Both report.
+			if not net.is_host:
+				get_tree().create_timer(4.0).timeout.connect(func():
+					progress.blueprints["net_test"] = true
+					progress.credits += 50
+					elevator.state = elevator.State.READY
+					drop_cache(player.global_position, [{"id": Items.IRON, "count": 5}]))
+				get_tree().create_timer(7.0).timeout.connect(func():
+					for c in _live_caches():
+						c.recover(player.backpack)
+						c.queue_free())
+			else:
+				get_tree().create_timer(9.0).timeout.connect(func(): progress.credits += 10)
+			for wait2 in [6.5, 13.0]:
+				get_tree().create_timer(wait2).timeout.connect(func():
+					print("Co-op share @%.1f: blueprint %s, credits %d, elevator %d, caches %d, players %d" % [wait2,
+						progress.blueprints.has("net_test"), progress.credits, elevator.state,
+						_live_caches().size(), director._players().size()]))
 			# Bugs: the host drops one by the joiner, the joiner shoots it, both report.
 			get_tree().create_timer(8.0).timeout.connect(func():
 				if net.is_host:

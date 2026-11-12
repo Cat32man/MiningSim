@@ -217,6 +217,49 @@ func to_dict() -> Dictionary:
 		"combat_tiers": combat_tiers.duplicate(), "eng_hotbar": eng_hotbar.duplicate()}
 
 
+## Co-op host: puts what a joiner changed (`before` -> `after`, both to_dict() minus the
+## market and hotbar) on top of ours. Unlocks add up, tiers keep the higher, credits add the
+## joiner's earnings or spending, picks (cosmetics) take the joiner's.
+func merge_change(before: Dictionary, after: Dictionary) -> void:
+	var mine := to_dict()
+	for key in after:
+		var a = after[key]
+		var b = before.get(key)
+		if a == b:
+			continue
+		if key == "credits":
+			mine[key] = maxi(int(mine.get(key, 0)) + int(a) - int(b if b != null else 0), 0)
+		elif a is bool:
+			mine[key] = bool(mine.get(key, false)) or a
+		elif a is Dictionary and mine.get(key) is Dictionary:
+			var into: Dictionary = mine[key]
+			for sk in a:
+				if (a[sk] is int or a[sk] is float) and into.has(sk):
+					into[sk] = maxi(int(into[sk]), int(a[sk]))  # tiers
+				else:
+					into[sk] = a[sk]  # unlocks, discoveries, picks
+		else:
+			mine[key] = a
+	from_dict(mine)
+
+
+## Co-op: the parts of to_dict() everyone shares (the market only the host runs; the
+## hotbar is each player's own).
+func shared_dict() -> Dictionary:
+	var d := to_dict()
+	d.erase("market")
+	d.erase("eng_hotbar")
+	return d
+
+
+## Co-op joiner: take the host's shared progress, keep our own hotbar and market copy.
+func apply_shared(d: Dictionary) -> void:
+	var mine := to_dict()
+	for k in d:
+		mine[k] = d[k]
+	from_dict(mine)
+
+
 func from_dict(d: Dictionary) -> void:
 	drill_owned = d.get("drill_owned", false)
 	diamond_tip = d.get("diamond_tip", false)

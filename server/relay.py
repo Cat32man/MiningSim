@@ -18,6 +18,8 @@ Control port messages (host <-> relay):
   either-> b"D" + joiner id (u32 LE) + payload   game traffic for/from one joiner
   relay -> b"X" + joiner id (u32 LE)    that joiner went quiet; drop its link
   relay -> b"MSR1F"                     no free room / not registered (start over)
+Game list (anyone, e.g. a title screen's "Connect to server"):
+  -> b"MSR1L"  /  relay -> b"MSR1R" + JSON [{"port": join port, "players": n}, ...]
 
 Updates: with --update-dir, the relay also serves that folder over plain HTTP on TCP
 CONTROL_PORT (update-<v>.bin + manifest.json from tools/release.sh). Plain HTTP is fine:
@@ -30,6 +32,7 @@ Run:  python3 relay.py --secret-file /etc/miningsim-relay/secret [--update-dir /
 import argparse
 import hashlib
 import hmac
+import json
 import http.server
 import threading
 import os
@@ -165,6 +168,9 @@ class Relay:
                 self._send(self.control, b"MSR1K", addr)
             else:
                 self._send(self.control, b"MSR1F", addr)
+        elif data == b"MSR1L":
+            games = [{"port": r.port, "players": 1 + len(r.joiners)} for r in self.rooms.values()]
+            self._send(self.control, b"MSR1R" + json.dumps(games).encode(), addr)
         elif data == b"MSR1H":
             nonce = os.urandom(16)
             self.challenges[addr] = (nonce, time.monotonic())

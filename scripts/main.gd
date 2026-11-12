@@ -151,6 +151,9 @@ func _ready() -> void:
 		# Unsaved test world, opened for co-op straight away.
 		_start_game(-1, {})
 		_open_coop(NetSession.LOCAL)
+	elif OS.get_cmdline_user_args().has("--connect"):
+		_show_menu()  # test: press "Connect to server"
+		_menu._find_games()
 	elif Array(OS.get_cmdline_user_args()).any(func(a): return a.begins_with("--join")):
 		_show_menu()
 		var at := NetSession.LOCAL

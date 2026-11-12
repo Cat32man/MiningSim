@@ -9,6 +9,7 @@ signal join_coop(address: String)
 const UI = preload("res://scripts/ui/ui_kit.gd")
 const SaveSystem = preload("res://scripts/save/save_system.gd")
 const Items = preload("res://scripts/items/items.gd")
+const ServerList = preload("res://scripts/net/server_list.gd")
 
 const SLOTS := 3
 const ACCENT := Color(1.0, 0.72, 0.3)
@@ -25,6 +26,8 @@ var _t := 0.0
 var _note: Label
 var _restart: Button
 var _address: LineEdit
+var _games: HBoxContainer  # one button per game found on the server
+var _finder
 const COOP_CFG := "user://coop.cfg"
 ## Slot waiting for a second click to confirm overwrite / delete.
 var _confirm := {}  # slot -> "new" | "delete"
@@ -82,8 +85,20 @@ func _ready() -> void:
 	var join := _button("Join co-op", _join, false)
 	join.size_flags_vertical = Control.SIZE_SHRINK_END
 	if not OS.has_feature("web"):  # browsers can't do co-op's UDP networking
-		footer.add_child(_address)
-		footer.add_child(join)
+		# Co-op row: games on our server, or a typed address.
+		var coop := HBoxContainer.new()
+		coop.alignment = BoxContainer.ALIGNMENT_END
+		coop.add_theme_constant_override("separation", 10)
+		coop.add_child(_button("Connect to server", _find_games, false))
+		_games = HBoxContainer.new()
+		_games.add_theme_constant_override("separation", 10)
+		_games.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		coop.add_child(_games)
+		coop.add_child(_address)
+		coop.add_child(join)
+		column.add_child(coop)
+		_finder = ServerList.new()
+		add_child(_finder)
 	var texts := _button("Text editor", func(): text_editor.emit(), false)
 	texts.size_flags_vertical = Control.SIZE_SHRINK_END
 	footer.add_child(texts)
@@ -222,6 +237,26 @@ func _card(slot: int) -> Control:
 		del_b.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
 	buttons.add_child(small)
 	return card
+
+
+## "Connect to server": one game open joins it; several get a button each.
+func _find_games() -> void:
+	for c in _games.get_children():
+		c.queue_free()
+	set_note("Looking for games…")
+	var games: Array = await _finder.find()
+	if not _finder.reached:
+		set_note("Server didn't answer")
+	elif games.is_empty():
+		set_note("No games open on the server")
+	elif games.size() == 1:
+		join_coop.emit(games[0]["address"])
+	else:
+		set_note("Pick a game:")
+		for i in games.size():
+			var g: Dictionary = games[i]
+			var who := "1 player" if g["players"] == 1 else "%d players" % g["players"]
+			_games.add_child(_button("Game %d · %s" % [i + 1, who], func(): join_coop.emit(g["address"]), true))
 
 
 func _on_update(text: String, ready: bool) -> void:

@@ -29,7 +29,7 @@ const Shot = preload("res://scripts/enemies/arbiter_shot.gd")
 const Spine = preload("res://scripts/enemies/spine.gd")
 const KEY_PATH := "res://scripts/net/coop_key.gd"
 const CERT_NAME := "miningsim"
-const PROTOCOL := 1  # bump when co-op messages change: older builds then can't join
+const PROTOCOL := 2  # bump when co-op messages change: older builds then can't join
 const LOCAL := "127.0.0.1"
 const PORT := 24680
 const RELAY_PORT := 24690
@@ -49,6 +49,8 @@ const MARKET := -3  # sale prices (host only, every few seconds)
 const MARKET_EVERY := 3.0
 const CACHE_BASE := 1000000  # caches and bodies: CACHE_BASE + cache id
 const ENEMY_RATE := 15.0
+const STATE_EVERY := 3.0  # joiner: how often our backpack/position goes to the host's save
+const COOP_CFG := "user://coop.cfg"
 const COLORS := [Color(0.95, 0.55, 0.2), Color(0.3, 0.6, 0.95), Color(0.4, 0.85, 0.45), Color(0.85, 0.4, 0.85)]
 
 var world  # VoxelWorld, once the game is running
@@ -62,6 +64,10 @@ var progress
 var caches: Node3D  # parent of caches and bodies (main's "Caches")
 var drop_cache: Callable  # main.drop_cache(pos, stacks)
 var spawn_cache: Callable  # main.spawn_cache(kind, pos, slots, cid) -> node
+## Host: each joiner's last state (backpack, gear, where they were) by player id. The same
+## Dictionary main keeps in its save, so it's saved with the world.
+var saved_players := {}
+var spawn_pos := Vector3.ZERO  # where a joiner who left while dead comes back
 var snapshot: Callable  # host: returns the world data a joiner needs
 var is_host := false
 var _avatars := {}  # peer id -> RemotePlayer
@@ -78,6 +84,8 @@ var _puppets := {}  # joiner: id -> copy of the host's bug/boss
 var _next_cache := 1
 var _market_t := 0.0
 var _progress_seen := {}  # joiner: shared progress as the host last sent it
+var _peer_ids := {}  # host: peer -> player id
+var _state_t := 0.0
 var _secret := PackedByteArray()
 var _challenges := {}  # host: peer id -> random bytes it must sign
 var _joined := false  # joiner: the host's world has arrived
@@ -309,14 +317,31 @@ func _on_auth(id: int, data: PackedByteArray) -> void:
 	if is_host:
 		var want := _sign(_challenges.get(id, PackedByteArray()))
 		_challenges.erase(id)
-		if data.size() == want.size() and data == want:
+		if data.size() >= want.size() and data.slice(0, want.size()) == want:
+			_peer_ids[id] = data.slice(want.size()).get_string_from_utf8().left(64)
 			mp.complete_auth(id)
 		else:
 			print("Co-op: turned away a player with the wrong key or version")
 			mp.disconnect_peer(id)
 	else:
-		mp.send_auth(1, _sign(data))
+		mp.send_auth(1, _sign(data) + my_id().to_utf8_buffer())  # the id finds our saved backpack
 		mp.complete_auth(1)
+
+
+## This computer's player id (made once, kept in user://coop.cfg), so a host can give a
+## returning player back their backpack.
+static func my_id() -> String:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--player-id="):
+			return arg.trim_prefix("--player-id=")  # test: two copies on one PC
+	var cfg := ConfigFile.new()
+	cfg.load(COOP_CFG)
+	var id: String = cfg.get_value("coop", "player_id", "")
+	if id == "":
+		id = Crypto.new().generate_random_bytes(12).hex_encode()
+		cfg.set_value("coop", "player_id", id)
+		cfg.save(COOP_CFG)
+	return id
 
 
 func _sign(challenge: PackedByteArray) -> PackedByteArray:
@@ -354,6 +379,14 @@ func _process(delta: float) -> void:
 	if not active() or player == null or not is_instance_valid(player) or not player.active:
 		return
 	_sync_machines(delta)
+	if not is_host:
+		_state_t -= delta
+		if _state_t <= 0.0:
+			_state_t = STATE_EVERY
+			var s: Dictionary = player.get_state()
+			if player.health <= 0.0:
+				s["pos"] = spawn_pos  # left while dead: back at the pod, alive
+			_player_state.rpc_id(1, s)
 	if is_host:
 		_enemy_t -= delta
 		if _enemy_t <= 0.0:
@@ -370,6 +403,9 @@ func _process(delta: float) -> void:
 
 func _on_peer_joined(id: int) -> void:
 	var data: Dictionary = snapshot.call()
+	var mine = saved_players.get(_peer_ids.get(id, ""))
+	if mine is Dictionary:
+		data["player"] = mine  # welcome back: your backpack, gear and spot
 	var raw := var_to_bytes(data)
 	print("Co-op: player %d joined, sending %d KB of world" % [id, raw.size() / 1024])
 	_welcome.rpc_id(id, raw.compress(FileAccess.COMPRESSION_ZSTD), raw.size())
@@ -419,6 +455,14 @@ func _state(pos: Vector3, yaw: float, pitch: float, health: float) -> void:
 func hurt_peer(id: int, amount: float, from: Vector3) -> void:
 	if active():
 		_hurt.rpc_id(id, amount, from)
+
+
+## Host: a joiner's backpack, gear and spot, kept for when they come back.
+@rpc("any_peer", "reliable")
+func _player_state(s: Dictionary) -> void:
+	var pid: String = _peer_ids.get(multiplayer.get_remote_sender_id(), "")
+	if is_host and pid != "":
+		saved_players[pid] = s
 
 
 @rpc("authority", "reliable")

@@ -71,6 +71,7 @@ var _selftest := false
 var _screenshot_path := ""
 var _fight_arbiter := false  # --fight-arbiter: unsaved game starting in the seal chamber
 var net  # NetSession while co-op is open (host) or joined (client)
+var _coop_players := {}  # host save: joiners' backpacks/gear/spots by player id
 var loading_screen: CanvasLayer
 var _cave_dust: Node3D
 var _env: Environment
@@ -245,8 +246,9 @@ func _join_coop(address: String) -> void:
 	net.joined.connect(func(data: Dictionary):
 		_leave_menu()
 		_start_game(-1, data)
-		player.position += Vector3(2.5, 0, 0)  # not right on top of the host
-		director.process_mode = Node.PROCESS_MODE_DISABLED  # the host's bugs aren't shared yet
+		if not data.has("player"):
+			player.position += Vector3(2.5, 0, 0)  # first visit: not right on top of the host
+		director.puppet = true  # the host runs bugs and bosses; ours only shows the Seal and lair glow
 		_hook_net())
 	net.host_left.connect(func():
 		_end_game()
@@ -272,6 +274,8 @@ func _hook_net() -> void:
 	net.caches = bodies
 	net.drop_cache = drop_cache
 	net.spawn_cache = spawn_cache
+	net.saved_players = _coop_players
+	net.spawn_pos = SPAWN_POS
 	elevator.puppet = not net.is_host
 	net.director = director
 	director.net = net
@@ -312,6 +316,7 @@ func _leave_menu() -> void:
 func _start_game(slot: int, data: Dictionary) -> void:
 	_slot = slot
 	_play_time = data.get("play_time", 0.0)
+	_coop_players = data.get("coop_players", {}).duplicate(true) if slot >= 0 else {}
 	_autosave_timer = 0.0
 	_ready_time = -1.0
 	_test_step = 0
@@ -495,6 +500,7 @@ func _save_game() -> bool:
 		"pod_storage": pod.storage.to_data(),
 		"elevator": elevator.get_state(),
 		"caches": _live_caches().map(func(b): return b.get_state()),
+		"coop_players": _coop_players,
 	}
 	if death_screen.visible:
 		data["player"]["pos"] = SPAWN_POS  # saved while dead: load in at the pod, alive
@@ -795,6 +801,11 @@ func _process(delta: float) -> void:
 			hud.flash_damage()  # brief red fade as you come back in
 		_ready_time = _clock
 		print("Caves ready after %.2fs with %d chunks" % [_clock, world.chunk_count()])
+		if net and not net.is_host and OS.get_cmdline_user_args().has("--rejointest"):
+			# Test: report the backpack we came back with; optionally pick up 9 iron.
+			print("Rejoin: iron %d" % player.backpack.count_of(Items.IRON))
+			if OS.get_cmdline_user_args().has("--give-iron"):
+				player.backpack.add(Items.IRON, 9)
 		if net and OS.get_cmdline_user_args().has("--netlog"):
 			world.apply_edit({"type": "carve_sphere", "center": player.global_position + Vector3(0, 0, -3),
 				"radius": 2.0, "strength": 3.0})  # co-op test: one dig the other side should see

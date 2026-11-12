@@ -55,6 +55,9 @@ var player
 var progress
 var grid
 var net  # NetSession in co-op
+## Co-op joiner: no spawning or bosses of its own (the host runs them), only the
+## Seal door and the lair glow around this player.
+var puppet := false
 
 var mined := {}  # Vector3i region -> samples removed
 ## Bugs guarding each body: {pos, count, age, spawned, spilled}.
@@ -118,6 +121,10 @@ static func label(t: float) -> String:
 
 func _process(dt: float) -> void:
 	if player == null:
+		return
+	if puppet:
+		if world and world._main_gen:
+			_update_looks(world._main_gen)
 		return
 	_cool_regions(dt)
 	_tick_death_swarms(dt)
@@ -271,14 +278,15 @@ func _tick_boss(dt: float) -> void:
 	if boss != null and not is_instance_valid(boss):
 		boss = null
 	var gen = world._main_gen if world else null
-	var arena: Vector3 = gen.arena_for(player.global_position) if gen else Vector3.INF
-	_update_arena_light(arena)
 	if gen:
-		_update_seal(gen)
+		_update_looks(gen)
 	if boss:
-		# Run far enough from its arena and it goes back to sleep (it'll be there next time).
+		# Everyone far enough from its arena and it goes back to sleep (it'll be there next time).
 		var home: Vector3 = boss.arena_center if boss.arena_center != Vector3.INF else boss.global_position
-		if boss.health > 0.0 and player.global_position.distance_to(home) > BOSS_LEASH:
+		var near := INF
+		for p in _players():
+			near = minf(near, p.global_position.distance_to(home))
+		if boss.health > 0.0 and near > BOSS_LEASH:
 			var b := boss
 			boss = null
 			_boss_cd = BOSS_RETRY
@@ -286,19 +294,40 @@ func _tick_boss(dt: float) -> void:
 			b.queue_free()
 		return
 	_boss_cd -= dt
-	if _boss_cd > 0.0 or not player.active or player.health <= 0.0:
+	if _boss_cd > 0.0:
 		return
-	if gen and _try_arbiter(gen):
-		return
+	# Co-op: any player stepping into a lair wakes it.
+	var keep = player
+	for p in _players():
+		if p.active and p.health > 0.0:
+			player = p
+			if _wake_boss(gen):
+				break
+	player = keep
+
+
+## The lair glow and the Seal door, around this computer's player.
+func _update_looks(gen) -> void:
+	_update_arena_light(gen.arena_for(player.global_position))
+	_update_seal(gen)
+
+
+## Wakes the boss whose lair `player` stands in. True if one woke.
+func _wake_boss(gen) -> bool:
+	if gen == null:
+		return false
+	if _try_arbiter(gen):
+		return true
+	var arena: Vector3 = gen.arena_for(player.global_position)
 	if arena == Vector3.INF:
-		return
+		return false
 	var key := lair_key(arena)
 	if bosses_defeated.has(key):
-		return
+		return false
 	# Wakes when you step onto the arena floor; rises on the far side from you.
 	var rel: Vector3 = player.global_position - arena
 	if Vector2(rel.x, rel.z).length() > gen.ARENA_RADII.x - 3.0 or absf(rel.y - gen.ARENA_FLOOR) > 6.0:
-		return
+		return false
 	var away := -Vector3(rel.x, 0.0, rel.z).normalized()
 	if away == Vector3.ZERO:
 		away = Vector3.FORWARD
@@ -306,6 +335,7 @@ func _tick_boss(dt: float) -> void:
 	var h := spawn_boss(at, key)
 	h.arena_center = arena + Vector3(0, gen.ARENA_FLOOR, 0)
 	h.arena_radius = gen.ARENA_RADII.x - 3.0
+	return true
 
 
 ## A big warm light hangs in an arena while you're near it (the lava glow itself doesn't

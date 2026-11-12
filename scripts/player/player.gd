@@ -252,6 +252,7 @@ func _ready() -> void:
 	weapons.player = self
 	_tool_root.add_child(weapons)
 	weapons.attach_shotgun_viewmodel(_drill_holder, _viewmodel_scale)
+	_no_held_shadows(camera)
 	_drill_sound = AudioStreamPlayer.new()
 	_drill_sound.stream = Sfx.stream("drill")
 	_drill_sound.volume_db = -8.0
@@ -1475,6 +1476,14 @@ WASD drive · Space dig down · Tab cargo · E get off" % vehicle.status
 		prompt = "[E] Drop pod"
 	hud.set_prompt(prompt)
 	hud.set_message(_message if _message_time > 0.0 else "")
+
+
+## Held tools sit right in front of the flashlight: they mustn't shadow its beam.
+func _no_held_shadows(n: Node) -> void:
+	for c in n.get_children():
+		if c is GeometryInstance3D:
+			c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_no_held_shadows(c)
 
 
 func _build_tool_models() -> void:

@@ -2,3 +2,6 @@
 *.sh text eol=lf
 tools/git-hooks/* text eol=lf
 server/* text eol=lf
+# Godot writes these with LF; keep them LF so exports do not leave them "modified"
+*.import text eol=lf
+project.godot text eol=lf

@@ -33,6 +33,7 @@ const CaveDust = preload("res://scripts/world/cave_dust.gd")
 const LoadingScreen = preload("res://scripts/ui/loading_screen.gd")
 const Sfx = preload("res://scripts/audio/sfx.gd")
 const NetSession = preload("res://scripts/net/net_session.gd")
+const PathTraceLoader = preload("res://scripts/pathtrace_loader.gd")
 
 const MAX_BODIES := 3
 
@@ -99,6 +100,7 @@ var _silicon_t := 0.0
 
 
 func _ready() -> void:
+	PathTraceLoader.ensure()  # before the environment asks whether path tracing exists
 	# 3D labels (scanner tags, bug numbers) use the same font as the UI.
 	ThemeDB.fallback_font = preload("res://assets/fonts/ui_font.tres")
 	# Menus and Esc handling must keep working while the game tree is paused.

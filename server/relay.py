@@ -42,6 +42,10 @@ MAX_JOINERS = 8
 MAX_PACKET = 2048
 IP_REFRESH = 1800.0
 TAG = b"miningsim-relay"
+# Linux: answer from the very address a packet was sent to. A server with several addresses
+# (e.g. a secondary LAN IP) would otherwise reply from its main one, and game clients drop
+# replies that don't come from the address they contacted.
+PKTINFO = hasattr(socket, "IP_PKTINFO") and hasattr(socket.socket, "recvmsg")
 
 
 def log(*args):
@@ -73,12 +77,37 @@ class Relay:
         self.rooms = {}  # join port -> Room
         self.host_room = {}  # host addr -> Room
         self.challenges = {}  # addr -> (nonce, time)
+        self.local = {}  # (socket fd, peer addr) -> our address they sent to (4 bytes)
 
     def _udp(self, port):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.bind((self.bind, port))
+        if PKTINFO:
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_PKTINFO, 1)
         s.setblocking(False)
         return s
+
+    def _recv(self, sock):
+        if not PKTINFO:
+            return sock.recvfrom(MAX_PACKET)
+        data, anc, _, addr = sock.recvmsg(MAX_PACKET, socket.CMSG_SPACE(12))
+        for level, kind, d in anc:
+            if level == socket.IPPROTO_IP and kind == socket.IP_PKTINFO and len(d) >= 12:
+                if len(self.local) > 10000:
+                    self.local.clear()  # scanners: don't grow forever
+                self.local[(sock.fileno(), addr)] = d[8:12]  # in_pktinfo.ipi_addr
+        return data, addr
+
+    def _send(self, sock, data, addr):
+        local = self.local.get((sock.fileno(), addr))
+        try:
+            if local is None:
+                sock.sendto(data, addr)
+            else:  # in_pktinfo: any interface, source = local
+                info = struct.pack("=I", 0) + local + bytes(4)
+                sock.sendmsg([data], [(socket.IPPROTO_IP, socket.IP_PKTINFO, info)], 0, addr)
+        except OSError as e:
+            log("send to", addr, "failed:", e)
 
     def refresh_ip(self):
         if self.public_fixed or time.monotonic() - self.ip_checked < IP_REFRESH:
@@ -100,7 +129,7 @@ class Relay:
                 sock = key.fileobj
                 for _ in range(256):  # drain, but keep the loop fair
                     try:
-                        data, addr = sock.recvfrom(MAX_PACKET)
+                        data, addr = self._recv(sock)
                     except BlockingIOError:
                         break
                     except OSError:
@@ -122,17 +151,17 @@ class Relay:
             jid = struct.unpack_from("<I", data, 1)[0]
             jaddr = room.by_id.get(jid)
             if jaddr:
-                room.sock.sendto(data[5:], jaddr)
+                self._send(room.sock, data[5:], jaddr)
         elif data == b"MSR1K":
             if room:
                 room.host_seen = time.monotonic()
-                self.control.sendto(b"MSR1K", addr)
+                self._send(self.control, b"MSR1K", addr)
             else:
-                self.control.sendto(b"MSR1F", addr)
+                self._send(self.control, b"MSR1F", addr)
         elif data == b"MSR1H":
             nonce = os.urandom(16)
             self.challenges[addr] = (nonce, time.monotonic())
-            self.control.sendto(b"MSR1C" + nonce, addr)
+            self._send(self.control, b"MSR1C" + nonce, addr)
         elif data[:5] == b"MSR1A" and len(data) == 5 + 32:
             nonce, t = self.challenges.pop(addr, (None, 0.0))
             if nonce is None or time.monotonic() - t > CHALLENGE_TIMEOUT:
@@ -144,7 +173,7 @@ class Relay:
             if room is None:
                 if not self.free:
                     log("no free room for", addr)
-                    self.control.sendto(b"MSR1F", addr)
+                    self._send(self.control, b"MSR1F", addr)
                     return
                 port = self.free.pop(0)
                 sock = self._udp(port)
@@ -154,7 +183,7 @@ class Relay:
                 self.host_room[addr] = room
                 log("room", port, "opened for", addr)
             room.host_seen = time.monotonic()
-            self.control.sendto(b"MSR1O" + struct.pack("<H", room.port) + self.public_host.encode(), addr)
+            self._send(self.control, b"MSR1O" + struct.pack("<H", room.port) + self.public_host.encode(), addr)
 
     # --- Joiners -----------------------------------------------------------------------
 
@@ -170,7 +199,7 @@ class Relay:
             room.by_id[j[0]] = addr
             log("room", room.port, "joiner", j[0], "from", addr)
         j[1] = now
-        self.control.sendto(b"D" + struct.pack("<I", j[0]) + data, room.host_addr)
+        self._send(self.control, b"D" + struct.pack("<I", j[0]) + data, room.host_addr)
 
     def expire(self):
         now = time.monotonic()
@@ -184,11 +213,14 @@ class Relay:
             for addr, (jid, seen) in list(room.joiners.items()):
                 if now - seen > JOINER_TIMEOUT:
                     del room.joiners[addr]
+                    self.local.pop((room.sock.fileno(), addr), None)
                     room.by_id.pop(jid, None)
-                    self.control.sendto(b"X" + struct.pack("<I", jid), room.host_addr)
+                    self._send(self.control, b"X" + struct.pack("<I", jid), room.host_addr)
 
     def close(self, room):
         log("room", room.port, "closed")
+        for addr in room.joiners:
+            self.local.pop((room.sock.fileno(), addr), None)
         self.sel.unregister(room.sock)
         room.sock.close()
         self.rooms.pop(room.port, None)

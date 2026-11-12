@@ -1,6 +1,8 @@
 extends Node
-## Co-op over ENet, step 1: local only (127.0.0.1), so nothing is reachable from outside this
-## computer. The host's world is the real one: a joiner gets its seed, dug-out chunks and
+## Co-op over ENet. Traffic is encrypted (DTLS) with the build's private key file
+## (scripts/net/coop_key.gd, never in git): a joiner only connects to a host whose certificate
+## matches theirs, and the host only lets in players who prove they have the same secret
+## (an HMAC of a random challenge) and the same PROTOCOL. The host's world is the real one: a joiner gets its seed, dug-out chunks and
 ## buildings, then every dig anyone makes is replayed for everyone else. The host runs all
 ## machines and sends their contents out; whatever a joiner changes in one (items moved,
 ## a craft started, a harvester driven) goes back to the host. The host also runs every bug
@@ -19,11 +21,14 @@ const Hydra = preload("res://scripts/enemies/hydra.gd")
 const Arbiter = preload("res://scripts/enemies/arbiter.gd")
 const Shot = preload("res://scripts/enemies/arbiter_shot.gd")
 const Spine = preload("res://scripts/enemies/spine.gd")
-const ADDRESS := "127.0.0.1"
+const KEY_PATH := "res://scripts/net/coop_key.gd"
+const CERT_NAME := "miningsim"
+const PROTOCOL := 1  # bump when co-op messages change: older builds then can't join
+const LOCAL := "127.0.0.1"
 const PORT := 24680
 const MAX_PLAYERS := 4
 const SEND_RATE := 20.0
-const JOIN_TIMEOUT := 6.0
+const JOIN_TIMEOUT := 10.0
 const MACHINE_RATE := 10.0  # machine syncs a second
 const HOLD := 0.6  # a joiner ignores the host's copy this long after changing a machine
 const POD := 0  # sync key for the drop pod's storage (buildings count up from 1)
@@ -49,6 +54,9 @@ var _enemy_t := 0.0
 var _next_enemy := 1
 var _enemies_by_id := {}  # host: id -> bug/boss
 var _puppets := {}  # joiner: id -> copy of the host's bug/boss
+var _secret := PackedByteArray()
+var _challenges := {}  # host: peer id -> random bytes it must sign
+var _joined := false  # joiner: the host's world has arrived
 
 
 func _ready() -> void:
@@ -62,28 +70,101 @@ func active() -> bool:
 		and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 
 
-func host() -> Error:
+## The build's private co-op key, or null if this build doesn't have one.
+static func keys():
+	return load(KEY_PATH) if ResourceLoader.exists(KEY_PATH) else null
+
+
+## Opens the game to other players. `bind`: "*" for every network (online), LOCAL for
+## this computer only.
+func host(bind := "*") -> Error:
+	var k = keys()
+	if k == null:
+		return ERR_UNCONFIGURED
 	var peer := ENetMultiplayerPeer.new()
-	peer.set_bind_ip(ADDRESS)
+	peer.set_bind_ip(bind)
 	var err := peer.create_server(PORT, MAX_PLAYERS - 1)
 	if err != OK:
 		return err
-	multiplayer.multiplayer_peer = peer
-	multiplayer.peer_connected.connect(_on_peer_joined)
+	var key := CryptoKey.new()
+	key.load_from_string(k.PRIVATE)
+	var cert := X509Certificate.new()
+	cert.load_from_string(k.CERT)
+	err = peer.host.dtls_server_setup(TLSOptions.server(key, cert))
+	if err != OK:
+		peer.close()
+		return err
 	is_host = true
+	_setup_auth(k)
+	multiplayer.peer_connected.connect(_on_peer_joined)
+	multiplayer.multiplayer_peer = peer
 	return OK
 
 
-func join() -> Error:
+func join(address: String) -> Error:
+	var k = keys()
+	if k == null:
+		return ERR_UNCONFIGURED
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_client(ADDRESS, PORT)
+	var err := peer.create_client(address, PORT)
 	if err != OK:
 		return err
+	var cert := X509Certificate.new()
+	cert.load_from_string(k.CERT)
+	err = peer.host.dtls_client_setup(CERT_NAME, TLSOptions.client(cert, CERT_NAME))
+	if err != OK:
+		peer.close()
+		return err
+	_setup_auth(k)
+	multiplayer.connection_failed.connect(func(): _fail("No game found there"))
+	multiplayer.server_disconnected.connect(func():
+		if _joined:
+			host_left.emit()
+		else:
+			_fail("The host turned us away (different build?)"))
 	multiplayer.multiplayer_peer = peer
-	multiplayer.connection_failed.connect(func(): _fail("No game open to join"))
-	multiplayer.server_disconnected.connect(func(): host_left.emit())
 	_join_t = JOIN_TIMEOUT
 	return OK
+
+
+# --- Letting players in -------------------------------------------------------------
+
+func _setup_auth(k) -> void:
+	_secret = k.SECRET.hex_decode()
+	if OS.get_cmdline_user_args().has("--badkey"):
+		_secret[0] ^= 1  # test: a build with a different key must be turned away
+	var mp := multiplayer as SceneMultiplayer
+	mp.auth_timeout = 8.0
+	mp.auth_callback = _on_auth
+	if is_host:
+		mp.peer_authenticating.connect(_on_authenticating)
+
+
+## Host: a new connection must sign this before it's let in.
+func _on_authenticating(id: int) -> void:
+	var challenge := Crypto.new().generate_random_bytes(32)
+	_challenges[id] = challenge
+	(multiplayer as SceneMultiplayer).send_auth(id, challenge)
+
+
+func _on_auth(id: int, data: PackedByteArray) -> void:
+	var mp := multiplayer as SceneMultiplayer
+	if is_host:
+		var want := _sign(_challenges.get(id, PackedByteArray()))
+		_challenges.erase(id)
+		if data.size() == want.size() and data == want:
+			mp.complete_auth(id)
+		else:
+			print("Co-op: turned away a player with the wrong key or version")
+			mp.disconnect_peer(id)
+	else:
+		mp.send_auth(1, _sign(data))
+		mp.complete_auth(1)
+
+
+func _sign(challenge: PackedByteArray) -> PackedByteArray:
+	var msg := challenge + ("miningsim-coop-v%d" % PROTOCOL).to_utf8_buffer()
+	return Crypto.new().hmac_digest(HashingContext.HASH_SHA256, _secret, msg)
 
 
 func close() -> void:
@@ -139,6 +220,7 @@ func _on_peer_joined(id: int) -> void:
 @rpc("authority", "reliable")
 func _welcome(blob: PackedByteArray, size: int) -> void:
 	_join_t = -1.0
+	_joined = true
 	print("Co-op: joined, got %d KB of world" % (size / 1024))
 	joined.emit(bytes_to_var(blob.decompress(size, FileAccess.COMPRESSION_ZSTD)))
 

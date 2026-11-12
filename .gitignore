@@ -5,3 +5,7 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Private co-op key (see scripts/tools/make_coop_key.gd)
+scripts/net/coop_key.gd
+scripts/net/coop_key.gd.uid

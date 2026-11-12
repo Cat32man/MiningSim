@@ -148,10 +148,10 @@ func _ready() -> void:
 	elif OS.get_cmdline_user_args().has("--host"):
 		# Unsaved test world, opened for co-op straight away.
 		_start_game(-1, {})
-		_open_coop()
+		_open_coop(NetSession.LOCAL)
 	elif OS.get_cmdline_user_args().has("--join"):
 		_show_menu()
-		_join_coop()
+		_join_coop(NetSession.LOCAL)
 	elif _fight_arbiter:
 		# Straight into THE ARBITER's chamber (nothing is saved). It wakes as the caves load.
 		_start_game(-1, {})
@@ -180,30 +180,46 @@ func _show_menu() -> void:
 
 # --- Co-op ------------------------------------------------------------------------
 
-## Host: lets other players on this computer join the running game.
-func _open_coop() -> void:
+## Host: lets other players join the running game (online unless `bind` says otherwise).
+func _open_coop(bind := "*") -> void:
 	if net:
-		pause_menu.set_status("Co-op is already open")
+		pause_menu.set_status(_coop_status())
 		return
 	net = NetSession.new()
 	add_child(net)
-	var err: Error = net.host()
+	var err: Error = net.host(bind)
 	if err != OK:
 		net.queue_free()
 		net = null
-		pause_menu.set_status("Couldn't open co-op (error %d)" % err)
+		pause_menu.set_status("No co-op key in this build" if err == ERR_UNCONFIGURED
+			else "Couldn't open co-op (error %d)" % err)
 		return
 	net.snapshot = func(): return {"seed": world.world_seed,
 		"chunks": world.export_modified(), "net_edits": world.export_pending(),
 		"buildings": grid.get_state(), "pod_storage": pod.storage.to_data()}
 	net.players_changed.connect(func(n: int): player._flash("%d players" % n))
 	_hook_net()
-	pause_menu.set_status("Co-op open on this PC")
+	pause_menu.set_status(_coop_status())
+
+
+## What friends type to join: this PC's network address (online: your public IP instead,
+## with the port forwarded) and the port.
+func _coop_status() -> String:
+	var lan := ""
+	for a in IP.get_local_addresses():
+		if a.begins_with("192.168.") or a.begins_with("10.") or a.begins_with("172."):
+			lan = a
+			break
+	return "Co-op open · port %d%s" % [NetSession.PORT, (" · LAN %s" % lan) if lan != "" else ""]
 
 
 ## Client: connects, waits for the host's world, then starts in it.
-func _join_coop() -> void:
+func _join_coop(address: String) -> void:
 	if net:
+		return
+	address = address.strip_edges()
+	if address == "":
+		_menu.set_note("Type the host's address")
 		return
 	net = NetSession.new()
 	add_child(net)
@@ -221,11 +237,12 @@ func _join_coop() -> void:
 		_end_game()
 		_show_menu()
 		_menu.set_note("The host closed the game"))
-	if net.join() != OK:
+	var err: Error = net.join(address)
+	if err != OK:
 		_drop_net()
-		_menu.set_note("Couldn't start joining")
+		_menu.set_note("No co-op key in this build" if err == ERR_UNCONFIGURED else "Couldn't reach %s" % address)
 		return
-	_menu.set_note("Joining…")
+	_menu.set_note("Joining %s…" % address)
 
 
 func _hook_net() -> void:

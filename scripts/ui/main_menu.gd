@@ -4,7 +4,7 @@ extends CanvasLayer
 signal new_game(slot: int)
 signal continue_game(slot: int)
 signal text_editor
-signal join_coop
+signal join_coop(address: String)
 
 const UI = preload("res://scripts/ui/ui_kit.gd")
 const SaveSystem = preload("res://scripts/save/save_system.gd")
@@ -23,6 +23,8 @@ var _glow_tex: GradientTexture2D
 var _dust: CPUParticles2D
 var _t := 0.0
 var _note: Label
+var _address: LineEdit
+const COOP_CFG := "user://coop.cfg"
 ## Slot waiting for a second click to confirm overwrite / delete.
 var _confirm := {}  # slot -> "new" | "delete"
 
@@ -61,7 +63,17 @@ func _ready() -> void:
 	_note.size_flags_vertical = Control.SIZE_SHRINK_END
 	_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer.add_child(_note)
-	var join := _button("Join co-op", func(): join_coop.emit(), false)
+	_address = LineEdit.new()
+	_address.placeholder_text = "Host address"
+	_address.custom_minimum_size = Vector2(200, 38)
+	_address.size_flags_vertical = Control.SIZE_SHRINK_END
+	_address.add_theme_font_size_override("font_size", 16)
+	var cfg := ConfigFile.new()
+	if cfg.load(COOP_CFG) == OK:
+		_address.text = cfg.get_value("coop", "address", "")
+	_address.text_submitted.connect(func(_t): _join())
+	footer.add_child(_address)
+	var join := _button("Join co-op", _join, false)
 	join.size_flags_vertical = Control.SIZE_SHRINK_END
 	footer.add_child(join)
 	var texts := _button("Text editor", func(): text_editor.emit(), false)
@@ -202,6 +214,13 @@ func _card(slot: int) -> Control:
 		del_b.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
 	buttons.add_child(small)
 	return card
+
+
+func _join() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("coop", "address", _address.text.strip_edges())
+	cfg.save(COOP_CFG)  # remembered for next time
+	join_coop.emit(_address.text)
 
 
 ## Status line by the footer buttons (co-op joining).

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Makes a release: bump application/config/version in project.godot first, then run
-#   tools/release.sh            # export every build + the update, upload the update
+#   tools/release.sh            # export every build + the update, upload the update,
+#                               # and put the web build on GitHub Pages
 #   tools/release.sh --no-upload
+# The git pre-push hook (tools/git-hooks/pre-push) runs this when a push to main carries
+# a version the server doesn't have yet.
 # Builds land in builds/<platform>/, the update in builds/update/. Players on an older
 # version get the update from the title screen (scripts/update/updates.gd).
 set -euo pipefail
@@ -40,4 +43,25 @@ ssh "$SERVER" "sudo install -d -m 755 $REMOTE_DIR && \
 	sudo install -m 644 /tmp/manifest.json $REMOTE_DIR/ && \
 	rm /tmp/update-$ver.bin /tmp/manifest.json && \
 	ls -t $REMOTE_DIR/update-*.bin | tail -n +4 | xargs -r sudo rm"
+
+# GitHub Pages: the public web build (never the private one: check the key isn't inside).
+if strings builds/web/index.pck | grep -qE "net/coop_key\.gd(c|\.remap)"; then
+	echo "Web build contains the co-op key! Not publishing it." >&2
+	exit 1
+fi
+echo "-- GitHub Pages"
+pages=$(mktemp -d)
+cp builds/web/* "$pages"/
+touch "$pages/.nojekyll"
+origin=$(git remote get-url origin)
+(
+	cd "$pages"
+	git init -q -b gh-pages
+	git add -A
+	git -c core.autocrlf=false commit -qm "Web build v$ver
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+	git push -q -f "$origin" gh-pages
+)
+rm -rf "$pages"
 echo "Released v$ver."

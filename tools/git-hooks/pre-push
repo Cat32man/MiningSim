@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Releases before a push to main when project.godot's version is newer than the one on the
+# update server (so bump config/version to release; other pushes go straight through).
+# Enabled with: git config core.hooksPath tools/git-hooks
+# Skip once with: SKIP_RELEASE=1 git push
+cd "$(git rev-parse --show-toplevel)"
+
+[[ -n "${SKIP_RELEASE:-}" ]] && exit 0
+
+to_main=false
+while read -r local_ref local_sha remote_ref remote_sha; do
+	[[ "$remote_ref" == "refs/heads/main" && "$local_sha" != 0000000000000000000000000000000000000000 ]] && to_main=true
+done
+$to_main || exit 0
+
+ver=$(grep -oP '^config/version="\K[0-9]+' project.godot)
+live=$(curl -s -m 5 "${UPDATE_SERVER:-http://home.olympus:24690}/manifest.json" | grep -oP '"version":\s*\K[0-9]+' || true)
+if [[ -z "$live" ]]; then
+	echo "pre-push: update server didn't answer; not releasing (push goes ahead)." >&2
+	exit 0
+fi
+if (( ver <= live )); then
+	echo "pre-push: v$ver is already released (server has v$live); bump config/version to release."
+	exit 0
+fi
+if ! git diff --quiet HEAD -- . ':!builds'; then
+	echo "pre-push: uncommitted changes; releasing v$ver needs a clean tree. Not releasing (push goes ahead)." >&2
+	exit 0
+fi
+echo "pre-push: releasing v$ver (server has v$live)..."
+if ! bash tools/release.sh; then
+	echo "pre-push: release failed; the push goes ahead anyway. Fix it and run tools/release.sh." >&2
+fi
+exit 0

@@ -194,7 +194,8 @@ func _open_coop() -> void:
 		pause_menu.set_status("Couldn't open co-op (error %d)" % err)
 		return
 	net.snapshot = func(): return {"seed": world.world_seed,
-		"chunks": world.export_modified(), "net_edits": world.export_pending()}
+		"chunks": world.export_modified(), "net_edits": world.export_pending(),
+		"buildings": grid.get_state(), "pod_storage": pod.storage.to_data()}
 	net.players_changed.connect(func(n: int): player._flash("%d players" % n))
 	_hook_net()
 	pause_menu.set_status("Co-op open on this PC")
@@ -230,6 +231,11 @@ func _hook_net() -> void:
 	net.world = world
 	net.player = player
 	net.avatar_parent = _game
+	net.grid = grid
+	net.pod = pod
+	grid.net = net
+	if not net.is_host:
+		net.prime()
 	world.edited.connect(net.send_edit)
 
 
@@ -718,6 +724,16 @@ func _process(delta: float) -> void:
 		if net and OS.get_cmdline_user_args().has("--netlog"):
 			world.apply_edit({"type": "carve_sphere", "center": player.global_position + Vector3(0, 0, -3),
 				"radius": 2.0, "strength": 3.0})  # co-op test: one dig the other side should see
+			# ...plus a building each, and (joiner) an item into the pod; both print what they see.
+			var b := Buildables.make("bench")
+			b.position = player.global_position + Vector3(4.0 if net.is_host else -4.0, 0, 0)
+			grid.add(b)
+			if not net.is_host:
+				pod.storage.add(Items.IRON, 7)
+			for wait in [3.0, 9.0]:
+				get_tree().create_timer(wait).timeout.connect(func():
+					print("Co-op test: %d buildings %s, pod iron %d" % [grid.buildings.size(),
+						grid.buildings.map(func(x): return x.net_id), pod.storage.count_of(Items.IRON)]))
 	if not player.active:
 		return
 

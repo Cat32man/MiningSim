@@ -24,6 +24,7 @@ var ghost := false
 var preview := false
 var grid
 var network_id := -1
+var net_id := 0  # co-op: the same building on every machine
 ## Last satisfaction from the grid, for display.
 var power_ratio := 0.0
 
@@ -143,6 +144,11 @@ func ui_build(_box: VBoxContainer, _player) -> void:
 
 func hover_text() -> String:
 	return display_name()
+
+
+## Co-op joiner: this copy only mirrors the host's building (the host runs it).
+func net_puppet() -> bool:
+	return grid != null and grid.net != null and grid.net.active() and not grid.net.is_host
 
 
 ## Subclasses extend these; the base saves every inventory from get_inventories().

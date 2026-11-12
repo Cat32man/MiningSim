@@ -1,8 +1,10 @@
 extends Node
 ## Co-op over ENet, step 1: local only (127.0.0.1), so nothing is reachable from outside this
-## computer. Players see each other and share the digging. The host's world is the real one:
-## a joiner gets its seed and dug-out chunks, then every dig anyone makes is replayed for
-## everyone else. Buildings, bugs, items and progress aren't shared yet.
+## computer. The host's world is the real one: a joiner gets its seed, dug-out chunks and
+## buildings, then every dig anyone makes is replayed for everyone else. The host runs all
+## machines and sends their contents out; whatever a joiner changes in one (items moved,
+## a craft started, a harvester driven) goes back to the host. Bugs and progress aren't
+## shared yet.
 
 signal joined(data: Dictionary)  # client: the host's world arrived
 signal failed(text: String)  # client: couldn't connect
@@ -15,16 +17,25 @@ const PORT := 24680
 const MAX_PLAYERS := 4
 const SEND_RATE := 20.0
 const JOIN_TIMEOUT := 6.0
+const MACHINE_RATE := 10.0  # machine syncs a second
+const HOLD := 0.6  # a joiner ignores the host's copy this long after changing a machine
+const POD := 0  # sync key for the drop pod's storage (buildings count up from 1)
 const COLORS := [Color(0.95, 0.55, 0.2), Color(0.3, 0.6, 0.95), Color(0.4, 0.85, 0.45), Color(0.85, 0.4, 0.85)]
 
 var world  # VoxelWorld, once the game is running
 var player
 var avatar_parent: Node3D
+var grid  # PowerGrid
+var pod
 var snapshot: Callable  # host: returns the world data a joiner needs
 var is_host := false
 var _avatars := {}  # peer id -> RemotePlayer
 var _send_t := 0.0
 var _join_t := -1.0
+var _machine_t := 0.0
+var _sent := {}  # host: key -> bytes last sent out
+var _known := {}  # joiner: key -> bytes of our copy as the host last left it
+var _hold := {}  # joiner: key -> seconds left ignoring the host (we just changed it)
 
 
 func _ready() -> void:
@@ -89,6 +100,7 @@ func _process(delta: float) -> void:
 			_fail("No game open to join")
 	if not active() or player == null or not is_instance_valid(player) or not player.active:
 		return
+	_sync_machines(delta)
 	_send_t -= delta
 	if _send_t <= 0.0:
 		_send_t = 1.0 / SEND_RATE
@@ -138,6 +150,146 @@ func _state(pos: Vector3, yaw: float, pitch: float) -> void:
 		print("Co-op: now showing player %d" % id)
 		players_changed.emit(player_count())
 	av.target(pos, yaw, pitch)
+
+
+# --- Buildings ----------------------------------------------------------------------
+
+func request_place(d: Dictionary) -> void:
+	_place_req.rpc_id(1, d)
+
+
+func request_remove(nid: int) -> void:
+	_remove_req.rpc_id(1, nid)
+
+
+## Host: tell the joiners about a new building.
+func building_placed(d: Dictionary) -> void:
+	if active() and is_host:
+		_placed.rpc(d)
+
+
+func building_removed(nid: int) -> void:
+	if active() and is_host:
+		_removed.rpc(nid)
+
+
+@rpc("any_peer", "reliable")
+func _place_req(d: Dictionary) -> void:
+	if is_host and grid:
+		var b = grid.net_spawn(d, true)
+		if b:
+			building_placed(grid.describe(b))
+
+
+@rpc("any_peer", "reliable")
+func _remove_req(nid: int) -> void:
+	if is_host and grid:
+		var b = grid.by_nid(nid)
+		if b:
+			grid.remove(b)
+
+
+@rpc("authority", "reliable")
+func _placed(d: Dictionary) -> void:
+	if grid:
+		grid.net_spawn(d, false)
+
+
+@rpc("authority", "reliable")
+func _removed(nid: int) -> void:
+	if grid:
+		grid.net_despawn(nid)
+
+
+## What a joiner can change in a machine (contents, health, where it stands).
+func _blob(key: int):
+	if key == POD:
+		return [pod.storage.to_data()] if pod else null
+	var b = grid.by_nid(key)
+	return [b.get_state(), b.hp, b.transform] if b else null
+
+
+## Joiner: remember the world as the host sent it, so any later change counts as ours.
+func prime() -> void:
+	if grid:
+		for k in _keys():
+			_known[k] = var_to_bytes(_blob(k))
+
+
+func _keys() -> Array:
+	var out: Array = [POD]
+	for b in grid.buildings:
+		out.append(b.net_id)
+	return out
+
+
+func _sync_machines(delta: float) -> void:
+	for k in _hold.keys():
+		_hold[k] -= delta
+		if _hold[k] <= 0.0:
+			_hold.erase(k)
+	_machine_t -= delta
+	if _machine_t > 0.0 or grid == null:
+		return
+	_machine_t = 1.0 / MACHINE_RATE
+	if is_host:
+		var changes := {}
+		for k in _keys():
+			var s = _blob(k)
+			var bytes := var_to_bytes(s)
+			if _sent.get(k) != bytes:
+				_sent[k] = bytes
+				if k != POD:
+					s.append(grid.by_nid(k).power_ratio)
+				changes[k] = s
+		if not changes.is_empty():
+			_machines.rpc(changes)
+	else:
+		# Anything different from what the host last sent is our doing: send it back.
+		for k in _keys():
+			var s = _blob(k)
+			var bytes := var_to_bytes(s)
+			if not _known.has(k):
+				_known[k] = bytes
+			elif _known[k] != bytes:
+				_known[k] = bytes
+				_hold[k] = HOLD
+				_machine_edit.rpc_id(1, k, s)
+
+
+func _apply_blob(k: int, s: Array) -> void:
+	if k == POD:
+		if pod:
+			pod.storage.from_data(s[0])
+		return
+	var b = grid.by_nid(k)
+	if b == null:
+		return
+	b.apply_state(s[0])
+	if b.transform != s[2]:
+		b.transform = s[2]
+	b.hp = s[1]
+	if (b.hp <= 0.0) != b.broken:
+		b.set_broken(b.hp <= 0.0)
+	if s.size() > 3:
+		b.power_ratio = s[3]
+
+
+@rpc("authority", "reliable")
+func _machines(changes: Dictionary) -> void:
+	if grid == null:
+		return
+	for k in changes:
+		if _hold.has(k):
+			continue
+		_apply_blob(k, changes[k])
+		_known[k] = var_to_bytes(_blob(k))
+
+
+@rpc("any_peer", "reliable")
+func _machine_edit(k: int, s: Array) -> void:
+	if is_host and grid:
+		_apply_blob(k, s)  # goes out to the other joiners with the next sync
 
 
 # --- Digging ------------------------------------------------------------------------

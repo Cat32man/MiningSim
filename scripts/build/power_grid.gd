@@ -19,6 +19,8 @@ var progress
 var world
 ## main's drop_cache(position, stacks: Array) — leaves items in the world.
 var drop_cache: Callable
+var net  # NetSession in co-op; the host runs the machines, joiners mirror them
+var _next_nid := 1
 
 var buildings: Array = []
 var _edges: Array = []  # [a, b]
@@ -42,21 +44,87 @@ func apply_cosmetics() -> void:
 
 
 func add(b: Node3D) -> void:
+	if _is_client():
+		net.request_place(describe(b))  # the host builds it and sends it to everyone
+		b.queue_free()
+		return
+	_assign_id(b)
 	b.grid = self
 	if b.get_parent() == null:
 		add_child(b)
 	buildings.append(b)
 	_rebuild()
+	if net:
+		net.building_placed(describe(b))
 
 
 ## Removing a building drops whatever is inside it as a cache on the spot.
 func remove(b: Node3D) -> void:
+	if _is_client():
+		net.request_remove(b.net_id)
+		buildings.erase(b)  # gone here at once, so it can't be taken down twice
+		b.queue_free()
+		_rebuild()
+		return
 	var stuff: Array = b.contents()
 	if not stuff.is_empty() and drop_cache.is_valid():
 		drop_cache.call(b.global_position, stuff)
 	buildings.erase(b)
 	b.queue_free()
 	_rebuild()
+	if net:
+		net.building_removed(b.net_id)
+
+
+# --- Co-op --------------------------------------------------------------------------
+
+func _is_client() -> bool:
+	return net != null and net.active() and not net.is_host
+
+
+func _assign_id(b: Node3D) -> void:
+	if b.net_id <= 0:
+		b.net_id = _next_nid
+	_next_nid = maxi(_next_nid, b.net_id + 1)
+
+
+func by_nid(nid: int):
+	for b in buildings:
+		if b.net_id == nid:
+			return b
+	return null
+
+
+func describe(b: Node3D) -> Dictionary:
+	return {"id": b.build_id, "xform": b.global_transform if b.is_inside_tree() else b.transform,
+		"state": b.get_state(), "hp": b.hp, "nid": b.net_id}
+
+
+## A building from another player. `fresh`: the host gives it a new id.
+func net_spawn(d: Dictionary, fresh: bool) -> Node3D:
+	if not Buildables.DEFS.has(d.get("id", "")) or (not fresh and by_nid(d["nid"]) != null):
+		return null
+	var b := Buildables.make(d["id"])
+	b.transform = d["xform"]
+	b.apply_state(d.get("state", {}))
+	b.hp = d.get("hp", b.max_hp)
+	if b.hp <= 0.0:
+		b.set_broken(true)
+	b.net_id = 0 if fresh else d["nid"]
+	_assign_id(b)
+	b.grid = self
+	add_child(b)
+	buildings.append(b)
+	_rebuild()
+	return b
+
+
+func net_despawn(nid: int) -> void:
+	var b = by_nid(nid)
+	if b:
+		buildings.erase(b)
+		b.queue_free()
+		_rebuild()
 
 
 func network_stats(id: int) -> Vector2:
@@ -64,6 +132,8 @@ func network_stats(id: int) -> Vector2:
 
 
 func _process(dt: float) -> void:
+	if _is_client():
+		return  # the host runs power and machines; their state arrives over the network
 	var nets := {}  # id -> [supply, demand, members]
 	for b in buildings:
 		if not b.is_power_node:
@@ -189,7 +259,8 @@ func _segment(a: Vector3, b: Vector3) -> void:
 func get_state() -> Array:
 	var out: Array = []
 	for b in buildings:
-		out.append({"id": b.build_id, "xform": b.global_transform, "state": b.get_state(), "hp": b.hp})
+		out.append({"id": b.build_id, "xform": b.global_transform, "state": b.get_state(), "hp": b.hp,
+			"nid": b.net_id})
 	return out
 
 
@@ -218,6 +289,8 @@ func load_state(list: Array) -> void:
 		b.hp = d.get("hp", b.max_hp)
 		if b.hp <= 0.0:
 			b.set_broken(true)
+		b.net_id = d.get("nid", 0)
+		_assign_id(b)
 		b.grid = self
 		add_child(b)
 		buildings.append(b)

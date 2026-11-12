@@ -352,5 +352,6 @@ The step between the fire caves and the next biome.
 
 ## Co-op (in progress)
 - Step 1 (done): local co-op on one PC over ENet bound to 127.0.0.1. Host: Esc → "Open to co-op". Join: title screen → "Join co-op". Players see each other (helmet + headlamp avatars) and all digging is shared; edits for chunks a player hasn't loaded wait and replay when they load (saved as `net_edits`).
-- Not shared yet: buildings, bugs/bosses, items, progress. The joiner's bugs are switched off.
-- Next: buildings + machines (host-authoritative), then bugs, then shared progress; real internet play via the user's server only after asking.
+- Step 2 (done): buildings. Each has a `net_id`; joiners ask the host to place/remove and the host tells everyone. The host runs power and every machine and sends changed machine states (contents, health, position, power) 10×/s. A joiner's copy only mirrors them, so anything that differs from the host's last copy is the joiner's doing (items moved, craft started, harvester driven) and goes back to the host. The drop pod's storage syncs the same way.
+- Not shared yet: bugs/bosses, the elevator, caches/dropped items, progress (blueprints, upgrades). The joiner's bugs are switched off.
+- Next: bugs, then shared progress; real internet play via the user's server only after asking.

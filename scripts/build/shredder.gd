@@ -188,6 +188,10 @@ func _physics_process(dt: float) -> void:
 	if ghost:
 		return
 	_age += dt
+	if net_puppet():
+		_working = status.begins_with("Shredding")  # the host's Shredder does the work
+		_animate(dt)
+		return
 	_working = false
 	if not _hop.is_empty():
 		_fly(dt)

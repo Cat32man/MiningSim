@@ -1,0 +1,4 @@
+# Shell scripts and git hooks must keep LF endings (bash breaks on CRLF)
+*.sh text eol=lf
+tools/git-hooks/* text eol=lf
+server/* text eol=lf

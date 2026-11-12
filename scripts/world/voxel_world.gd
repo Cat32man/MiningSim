@@ -12,6 +12,8 @@ const Crystals = preload("res://scripts/world/crystals.gd")
 
 ## Solid samples turned to air by an edit (drives local threat).
 signal carved(center: Vector3, removed: int)
+## A local edit, for co-op to send to the other players (not emitted for theirs).
+signal edited(op: Dictionary)
 
 const S := 16
 const S3 := S * S * S
@@ -52,6 +54,9 @@ var _crystal_meshes := {}  # material -> Mesh
 var _last_center := Vector3i(1 << 20, 0, 0)
 var _tasks: Array[int] = []
 var _shutting_down := false
+## Co-op: other players' edits for chunks not loaded here yet, replayed when they load.
+var _pending_ops := {}  # Vector3i -> [op]
+var _edit_only := {}  # while replaying: edits only touch these chunks
 
 
 func _ready() -> void:
@@ -157,6 +162,8 @@ func material_histogram() -> Dictionary:
 ## op = {"type": "carve_sphere", "center": Vector3, "radius": float, "strength": float,
 ##       "diamond": bool (optional, lets the edit cut hard rock)}
 func apply_edit(op: Dictionary) -> Dictionary:
+	if _edit_only.is_empty():
+		edited.emit(op)
 	var mined := {}
 	if op.get("type", "") == "clear_cells":
 		return _clear_cells(op)
@@ -181,7 +188,7 @@ func apply_edit(op: Dictionary) -> Dictionary:
 				if dist > radius:
 					continue
 				var cpos := Vector3i(floori(float(x) / S), floori(float(y) / S), floori(float(z) / S))
-				var ch: Chunk = _chunks.get(cpos)
+				var ch: Chunk = _edit_chunk(cpos)
 				if ch == null or not ch.generated:
 					continue
 				var idx := posmod(x, S) + posmod(y, S) * S + posmod(z, S) * S * S
@@ -240,7 +247,7 @@ func _harvest(op: Dictionary) -> Dictionary:
 				var dist := center.distance_to(Vector3(x, y, z))
 				if dist > shell:
 					continue
-				var ch: Chunk = _chunks.get(Vector3i(floori(float(x) / S), floori(float(y) / S), floori(float(z) / S)))
+				var ch: Chunk = _edit_chunk(Vector3i(floori(float(x) / S), floori(float(y) / S), floori(float(z) / S)))
 				if ch == null or not ch.generated:
 					continue
 				var idx := posmod(x, S) + posmod(y, S) * S + posmod(z, S) * S * S
@@ -284,7 +291,7 @@ func _clear_cells(op: Dictionary) -> Dictionary:
 	var sum := Vector3.ZERO
 	for c in op["cells"]:
 		var cell: Vector3i = c
-		var ch: Chunk = _chunks.get(Vector3i(floori(float(cell.x) / S), floori(float(cell.y) / S), floori(float(cell.z) / S)))
+		var ch: Chunk = _edit_chunk(Vector3i(floori(float(cell.x) / S), floori(float(cell.y) / S), floori(float(cell.z) / S)))
 		if ch == null or not ch.generated:
 			continue
 		var idx := posmod(cell.x, S) + posmod(cell.y, S) * S + posmod(cell.z, S) * S * S
@@ -309,6 +316,57 @@ func _clear_cells(op: Dictionary) -> Dictionary:
 			if dch and dch.generated:
 				_schedule_mesh(dch, true)
 	return mined
+
+
+func _edit_chunk(cpos: Vector3i) -> Chunk:
+	if not _edit_only.is_empty() and not _edit_only.has(cpos):
+		return null
+	return _chunks.get(cpos)
+
+
+## Co-op: another player's edit. Applied now to the chunks loaded here; the rest wait in
+## _pending_ops until those chunks load, so everyone ends up with the same rock.
+func apply_remote_edit(op: Dictionary) -> void:
+	var now := {}
+	for cpos in _op_chunks(op):
+		var ch: Chunk = _chunks.get(cpos)
+		if ch and ch.generated:
+			now[cpos] = true
+		else:
+			if not _pending_ops.has(cpos):
+				_pending_ops[cpos] = []
+			_pending_ops[cpos].append(op)
+	if not now.is_empty():
+		_edit_only = now
+		apply_edit(op)
+		_edit_only = {}
+
+
+## Chunks whose samples an edit can change.
+func _op_chunks(op: Dictionary) -> Array:
+	if op.get("type", "") == "clear_cells":
+		var seen := {}
+		for c in op["cells"]:
+			seen[world_to_chunk(Vector3(c))] = true
+		return seen.keys()
+	var center: Vector3 = op["center"]
+	var r: float = op["radius"] + (1.5 if op.get("type", "") == "harvest" else 0.0)
+	var lo := world_to_chunk((center - Vector3.ONE * r).floor())
+	var hi := world_to_chunk((center + Vector3.ONE * r).ceil())
+	var out := []
+	for z in range(lo.z, hi.z + 1):
+		for y in range(lo.y, hi.y + 1):
+			for x in range(lo.x, hi.x + 1):
+				out.append(Vector3i(x, y, z))
+	return out
+
+
+func export_pending() -> Dictionary:
+	return _pending_ops.duplicate(true)
+
+
+func import_pending(data: Dictionary) -> void:
+	_pending_ops = data.duplicate(true)
 
 
 ## Edited chunk densities for saving: {Vector3i: PackedFloat32Array}. Includes loaded-from-save
@@ -494,6 +552,12 @@ func _apply_results() -> void:
 							if n and n != ch and n.generated and n.mesh_version > 0:
 								_schedule_mesh(n, false)
 			ch.generated = true
+			if _pending_ops.has(ch.cpos):
+				_edit_only = {ch.cpos: true}
+				for op in _pending_ops[ch.cpos]:
+					apply_edit(op)
+				_edit_only = {}
+				_pending_ops.erase(ch.cpos)
 			_schedule_mesh(ch, false)
 		else:
 			if applied_meshes >= MAX_MESH_APPLY_PER_FRAME and not r["priority"]:

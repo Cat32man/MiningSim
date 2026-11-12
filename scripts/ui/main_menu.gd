@@ -4,6 +4,7 @@ extends CanvasLayer
 signal new_game(slot: int)
 signal continue_game(slot: int)
 signal text_editor
+signal join_coop
 
 const UI = preload("res://scripts/ui/ui_kit.gd")
 const SaveSystem = preload("res://scripts/save/save_system.gd")
@@ -21,6 +22,7 @@ var _glow: TextureRect
 var _glow_tex: GradientTexture2D
 var _dust: CPUParticles2D
 var _t := 0.0
+var _note: Label
 ## Slot waiting for a second click to confirm overwrite / delete.
 var _confirm := {}  # slot -> "new" | "delete"
 
@@ -54,6 +56,14 @@ func _ready() -> void:
 	footer.alignment = BoxContainer.ALIGNMENT_END
 	footer.custom_minimum_size.y = 56
 	footer.add_theme_constant_override("separation", 10)
+	_note = _line("", 16, DIM)
+	_note.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_note.size_flags_vertical = Control.SIZE_SHRINK_END
+	_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer.add_child(_note)
+	var join := _button("Join co-op", func(): join_coop.emit(), false)
+	join.size_flags_vertical = Control.SIZE_SHRINK_END
+	footer.add_child(join)
 	var texts := _button("Text editor", func(): text_editor.emit(), false)
 	texts.size_flags_vertical = Control.SIZE_SHRINK_END
 	footer.add_child(texts)
@@ -192,6 +202,11 @@ func _card(slot: int) -> Control:
 		del_b.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
 	buttons.add_child(small)
 	return card
+
+
+## Status line by the footer buttons (co-op joining).
+func set_note(text: String) -> void:
+	_note.text = text
 
 
 func _line(text: String, size: int, color: Color) -> Label:

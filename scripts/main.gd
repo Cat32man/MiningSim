@@ -32,6 +32,7 @@ const DeathScreen = preload("res://scripts/ui/death_screen.gd")
 const CaveDust = preload("res://scripts/world/cave_dust.gd")
 const LoadingScreen = preload("res://scripts/ui/loading_screen.gd")
 const Sfx = preload("res://scripts/audio/sfx.gd")
+const NetSession = preload("res://scripts/net/net_session.gd")
 
 const MAX_BODIES := 3
 
@@ -69,6 +70,7 @@ var _autosave_timer := 0.0
 var _selftest := false
 var _screenshot_path := ""
 var _fight_arbiter := false  # --fight-arbiter: unsaved game starting in the seal chamber
+var net  # NetSession while co-op is open (host) or joined (client)
 var loading_screen: CanvasLayer
 var _cave_dust: Node3D
 var _env: Environment
@@ -143,6 +145,13 @@ func _ready() -> void:
 	elif _selftest or not _screenshot_path.is_empty():
 		_start_game(-1, {})
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif OS.get_cmdline_user_args().has("--host"):
+		# Unsaved test world, opened for co-op straight away.
+		_start_game(-1, {})
+		_open_coop()
+	elif OS.get_cmdline_user_args().has("--join"):
+		_show_menu()
+		_join_coop()
 	elif _fight_arbiter:
 		# Straight into THE ARBITER's chamber (nothing is saved). It wakes as the caves load.
 		_start_game(-1, {})
@@ -166,6 +175,69 @@ func _show_menu() -> void:
 	_menu.new_game.connect(func(slot: int): _leave_menu(); _start_game(slot, {}))
 	_menu.continue_game.connect(_on_continue)
 	_menu.text_editor.connect(_open_text_editor)
+	_menu.join_coop.connect(_join_coop)
+
+
+# --- Co-op ------------------------------------------------------------------------
+
+## Host: lets other players on this computer join the running game.
+func _open_coop() -> void:
+	if net:
+		pause_menu.set_status("Co-op is already open")
+		return
+	net = NetSession.new()
+	add_child(net)
+	var err: Error = net.host()
+	if err != OK:
+		net.queue_free()
+		net = null
+		pause_menu.set_status("Couldn't open co-op (error %d)" % err)
+		return
+	net.snapshot = func(): return {"seed": world.world_seed,
+		"chunks": world.export_modified(), "net_edits": world.export_pending()}
+	net.players_changed.connect(func(n: int): player._flash("%d players" % n))
+	_hook_net()
+	pause_menu.set_status("Co-op open on this PC")
+
+
+## Client: connects, waits for the host's world, then starts in it.
+func _join_coop() -> void:
+	if net:
+		return
+	net = NetSession.new()
+	add_child(net)
+	net.failed.connect(func(text: String):
+		_drop_net()
+		if _menu:
+			_menu.set_note(text))
+	net.joined.connect(func(data: Dictionary):
+		_leave_menu()
+		_start_game(-1, data)
+		director.process_mode = Node.PROCESS_MODE_DISABLED  # the host's bugs aren't shared yet
+		_hook_net())
+	net.host_left.connect(func():
+		_end_game()
+		_show_menu()
+		_menu.set_note("The host closed the game"))
+	if net.join() != OK:
+		_drop_net()
+		_menu.set_note("Couldn't start joining")
+		return
+	_menu.set_note("Joining…")
+
+
+func _hook_net() -> void:
+	net.world = world
+	net.player = player
+	net.avatar_parent = _game
+	world.edited.connect(net.send_edit)
+
+
+func _drop_net() -> void:
+	if net:
+		net.close()
+		net.queue_free()
+		net = null
 
 
 ## Full-screen string editor over the title screen.
@@ -211,6 +283,7 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	# Test modes use a fixed seed so results are repeatable.
 	world.world_seed = data.get("seed", 1337 if slot < 0 else randi())
 	world.import_modified(data.get("chunks", {}))
+	world.import_pending(data.get("net_edits", {}))
 	_game.add_child(world)
 
 	pod = DropPod.new()
@@ -337,6 +410,7 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	pause_menu = PauseMenu.new()
 	pause_menu.resume_pressed.connect(_resume)
 	pause_menu.unstuck_pressed.connect(_on_unstuck)
+	pause_menu.coop_pressed.connect(_open_coop)
 	pause_menu.save_pressed.connect(func(): pause_menu.set_status("Saved." if _save_game() else "Save failed!"))
 	pause_menu.save_quit_pressed.connect(func(): _save_game(); _end_game(); _show_menu())
 	pause_menu.quit_desktop_pressed.connect(func(): _save_game(); get_tree().quit())
@@ -347,6 +421,7 @@ func _start_game(slot: int, data: Dictionary) -> void:
 
 func _end_game() -> void:
 	get_tree().paused = false
+	_drop_net()
 	if _game:
 		_game.queue_free()
 		_game = null
@@ -364,6 +439,7 @@ func _save_game() -> bool:
 		"player": player.get_state(),
 		"progress": progress.to_dict(),
 		"chunks": world.export_modified(),
+		"net_edits": world.export_pending(),
 		"buildings": grid.get_state(),
 		"threat": director.mined,
 		"death_swarms": director.get_swarms_state(),
@@ -639,6 +715,9 @@ func _process(delta: float) -> void:
 			hud.flash_damage()  # brief red fade as you come back in
 		_ready_time = _clock
 		print("Caves ready after %.2fs with %d chunks" % [_clock, world.chunk_count()])
+		if net and OS.get_cmdline_user_args().has("--netlog"):
+			world.apply_edit({"type": "carve_sphere", "center": player.global_position + Vector3(0, 0, -3),
+				"radius": 2.0, "strength": 3.0})  # co-op test: one dig the other side should see
 	if not player.active:
 		return
 

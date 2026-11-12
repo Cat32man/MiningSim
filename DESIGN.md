@@ -349,3 +349,8 @@ The step between the fire caves and the next biome.
 3. Exact respawn cost and debuff.
 4. Flares: recharge vs crafted.
 5. Story, setting, and ending.
+
+## Co-op (in progress)
+- Step 1 (done): local co-op on one PC over ENet bound to 127.0.0.1. Host: Esc → "Open to co-op". Join: title screen → "Join co-op". Players see each other (helmet + headlamp avatars) and all digging is shared; edits for chunks a player hasn't loaded wait and replay when they load (saved as `net_edits`).
+- Not shared yet: buildings, bugs/bosses, items, progress. The joiner's bugs are switched off.
+- Next: buildings + machines (host-authoritative), then bugs, then shared progress; real internet play via the user's server only after asking.

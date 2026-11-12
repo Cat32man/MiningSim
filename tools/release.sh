@@ -61,17 +61,20 @@ if strings builds/web/index.pck | grep -qE "net/coop_key\.gd(c|\.remap)"; then
 fi
 echo "-- GitHub Pages"
 pages=$(mktemp -d)
-cp builds/web/* "$pages"/
-touch "$pages/.nojekyll"
 origin=$(git remote get-url origin)
 (
+	# A new commit on top of gh-pages (no force push, its history stays).
 	cd "$pages"
 	git init -q -b gh-pages
+	git -c core.autocrlf=false fetch -q --depth 1 "$origin" gh-pages && git reset -q --soft FETCH_HEAD || true
+	git rm -rq --cached . 2>/dev/null || true
+	cp "$OLDPWD"/builds/web/* .
+	touch .nojekyll
 	git add -A
 	git -c core.autocrlf=false commit -qm "Web build v$ver
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-	git push -q -f "$origin" gh-pages
+	git push -q "$origin" gh-pages
 )
 rm -rf "$pages"
 echo "Released v$ver."

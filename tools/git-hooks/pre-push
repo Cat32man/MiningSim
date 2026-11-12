@@ -28,7 +28,7 @@ if ! git diff --quiet HEAD -- . ':!builds'; then
 	exit 0
 fi
 echo "pre-push: releasing v$ver (server has v$live)..."
-if ! bash tools/release.sh; then
+if ! bash tools/release.sh ${RELEASE_ARGS:-}; then  # RELEASE_ARGS=--no-upload to try it out
 	echo "pre-push: release failed; the push goes ahead anyway. Fix it and run tools/release.sh." >&2
 fi
 exit 0

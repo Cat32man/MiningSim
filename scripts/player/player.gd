@@ -1291,6 +1291,11 @@ func scan() -> void:
 		var home: Vector3 = pod.global_position + Vector3(0, 6.0, 0)
 		_scan_marker("▲ DROP POD\n%d m" % roundi(home.distance_to(global_position)), home,
 			Color(1.0, 0.72, 0.3), 34)
+	# Co-op: the other players, at any range, in their own colours.
+	for other in get_tree().get_nodes_in_group("coop_players"):
+		var op: Vector3 = other.global_position + Vector3(0, 2.6, 0)
+		_scan_marker("● %s\n%d m" % [other.label_text.to_upper(), roundi(op.distance_to(global_position))], op,
+			other.color.lightened(0.3), 30)
 	for body in get_tree().get_nodes_in_group("bodies"):
 		var bp: Vector3 = body.global_position + Vector3(0, 2.0, 0)
 		_scan_marker("✚ YOUR BODY\n%d m" % roundi(bp.distance_to(global_position)), bp,
@@ -1314,14 +1319,6 @@ func scan() -> void:
 			_scan_marker("%s
 %d m" % ["THE SEAL" if not beaten else "THE SEAL (quiet)", roundi(door.distance_to(global_position))],
 				door, Color(0.4, 1.0, 0.55) if not beaten else Color(0.6, 0.7, 0.6), 30)
-	# The Seal (THE ARBITER's chamber), once you've reached the silicon caves.
-	if director and world._main_gen and progress and progress.silicon_found:
-		var door: Vector3 = world._main_gen.seal_door(world.world_seed)
-		if door.distance_to(global_position) < 300.0:
-			var quiet: bool = director.bosses_defeated.has("arbiter")
-			_scan_marker("%s
-%d m" % ["THE SEAL (quiet)" if quiet else "THE SEAL", roundi(door.distance_to(global_position))],
-				door, Color(0.6, 0.7, 0.6) if quiet else Color(0.4, 1.0, 0.55), 30)
 	# Your Shredders, at any range, with what they're up to.
 	if builder and builder.grid:
 		for b in builder.grid.buildings:

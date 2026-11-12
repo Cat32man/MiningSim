@@ -368,3 +368,6 @@ The step between the fire caves and the next biome.
 - Update files are AES-256-CBC encrypted + HMAC-SHA256 with keys derived from the co-op secret (the pack contains the key). Wrong/altered files are refused.
 - The Updates autoload (scripts/update/updates.gd) checks on the title screen (exported builds only), saves the pack as user://update/game.pck, and offers Restart; at start-up it loads that pack over the built-in one if it's newer than the build and for the same engine version. A Godot upgrade needs new full builds (the title screen says so).
 
+## Graphics
+- Path tracing: the user's GodotPathTrace GDExtension (C:\projects\GodotPathTrace, Rust) in addons/pathtrace, Light mode (screen-space path-traced GI, works with the changing caves) as a Compositor effect on the WorldEnvironment. Off by default; Esc menu toggle, remembered in user://settings.cfg. Windows only: the DLL is git-ignored and copied from GodotPathTrace/target/release by tools/release.sh; Mac/Linux/Web presets exclude addons/pathtrace and the option is hidden where the class doesn't exist. Updates can't deliver the DLL, so it reaches players with a full Windows download (MiningSim.exe + godot_pathtrace.dll side by side).
+- F11 toggles fullscreen anywhere.

@@ -4,6 +4,7 @@ extends CanvasLayer
 signal resume_pressed
 signal unstuck_pressed
 signal coop_pressed
+signal pathtrace_pressed
 signal save_pressed
 signal save_quit_pressed
 signal quit_desktop_pressed
@@ -11,6 +12,7 @@ signal quit_desktop_pressed
 const UI = preload("res://scripts/ui/ui_kit.gd")
 
 var _status: Label
+var _pathtrace: Button
 
 
 func _ready() -> void:
@@ -23,11 +25,19 @@ func _ready() -> void:
 	box.add_child(UI.button("Unstuck", func(): unstuck_pressed.emit()))
 	if not OS.has_feature("web"):  # browsers can't do co-op's UDP networking
 		box.add_child(UI.button("Open to co-op", func(): coop_pressed.emit()))
+	if ClassDB.class_exists("PathTraceEffect"):  # only where the GodotPathTrace extension loaded
+		_pathtrace = UI.button("Path tracing: Off", func(): pathtrace_pressed.emit())
+		box.add_child(_pathtrace)
 	box.add_child(UI.button("Save", func(): save_pressed.emit()))
 	box.add_child(UI.button("Save & quit to menu", func(): save_quit_pressed.emit()))
 	box.add_child(UI.button("Save & quit to desktop", func(): quit_desktop_pressed.emit()))
 	_status = UI.label("", 15, Color(0.7, 0.8, 0.7))
 	box.add_child(_status)
+
+
+func show_pathtrace(on: bool) -> void:
+	if _pathtrace:
+		_pathtrace.text = "Path tracing: On" if on else "Path tracing: Off"
 
 
 func set_status(text: String) -> void:

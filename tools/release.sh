@@ -18,6 +18,11 @@ ver=$(grep -oP '^config/version="\K[0-9]+' project.godot)
 echo "== MiningSim v$ver"
 
 mkdir -p builds/windows builds/macos builds/linux builds/web builds/web_private builds/update
+# GodotPathTrace: take the newest build of the extension if its project is on this PC.
+PT_DLL=../GodotPathTrace/target/release/godot_pathtrace.dll
+if [[ -f "$PT_DLL" && "$PT_DLL" -nt addons/pathtrace/bin/godot_pathtrace.dll ]]; then
+	mkdir -p addons/pathtrace/bin && cp "$PT_DLL" addons/pathtrace/bin/
+fi
 touch builds/.gdignore
 stamp=$(mktemp)  # every build must come out newer than this
 declare -A OUT=(["Windows"]=builds/windows/MiningSim.exe ["macOS"]=builds/macos/MiningSim.zip

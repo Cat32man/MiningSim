@@ -15,3 +15,6 @@ builds/
 
 # Python cache
 __pycache__/
+
+# GodotPathTrace binary (built from C:\projects\GodotPathTrace; tools/release.sh refreshes it)
+addons/pathtrace/bin/

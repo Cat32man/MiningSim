@@ -72,6 +72,11 @@ var _screenshot_path := ""
 var _fight_arbiter := false  # --fight-arbiter: unsaved game starting in the seal chamber
 var net  # NetSession while co-op is open (host) or joined (client)
 var _coop_players := {}  # host save: joiners' backpacks/gear/spots by player id
+const SETTINGS := "user://settings.cfg"
+## GodotPathTrace (addons/pathtrace, Windows builds only): screen-space path-traced GI as a
+## compositor effect. Off unless the player turns it on (Esc menu); remembered per computer.
+var _pathtrace  # PathTraceEffect, when the extension loaded
+var _world_env: WorldEnvironment
 var loading_screen: CanvasLayer
 var _cave_dust: Node3D
 var _env: Environment
@@ -463,10 +468,12 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	pause_menu.resume_pressed.connect(_resume)
 	pause_menu.unstuck_pressed.connect(_on_unstuck)
 	pause_menu.coop_pressed.connect(_open_coop)
+	pause_menu.pathtrace_pressed.connect(func(): set_pathtrace(not pathtrace_on()))
 	pause_menu.save_pressed.connect(func(): pause_menu.set_status("Saved." if _save_game() else "Save failed!"))
 	pause_menu.save_quit_pressed.connect(func(): _save_game(); _end_game(); _show_menu())
 	pause_menu.quit_desktop_pressed.connect(func(): _save_game(); get_tree().quit())
 	_game.add_child(pause_menu)
+	pause_menu.show_pathtrace(pathtrace_on())
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -514,6 +521,16 @@ func _exit_tree() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST and player and player.active:
 		_save_game()
+
+
+## F11 anywhere (title screen, playing, paused): fullscreen <-> windowed.
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed("fullscreen") and not event.is_echo():
+		var full := DisplayServer.window_get_mode() in [DisplayServer.WINDOW_MODE_FULLSCREEN,
+			DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN]
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full
+			else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1462,6 +1479,43 @@ func _make_environment() -> void:
 	we.environment = env
 	add_child(we)
 	_env = env
+	_world_env = we
+	_setup_pathtrace()
+
+
+## Light mode only: it's screen-space, so it copes with caves that change every second
+## (Heavy mode needs a fixed snapshot of the scene).
+func _setup_pathtrace() -> void:
+	if not ClassDB.class_exists("PathTraceEffect"):
+		return  # Mac/Linux/web builds, or the DLL is missing: the option just isn't offered
+	_pathtrace = ClassDB.instantiate("PathTraceEffect")
+	_pathtrace.mode = 0
+	_pathtrace.gi_intensity = 1.6
+	_pathtrace.max_distance = 6.0
+	_pathtrace.rays_per_pixel = 4
+	var comp := Compositor.new()
+	comp.compositor_effects = [_pathtrace]
+	_world_env.compositor = comp
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS)
+	set_pathtrace(cfg.get_value("graphics", "pathtrace", false) or OS.get_cmdline_user_args().has("--pathtrace"), false)
+
+
+func set_pathtrace(on: bool, remember := true) -> void:
+	if _pathtrace == null:
+		return
+	_pathtrace.enabled = on
+	if remember:
+		var cfg := ConfigFile.new()
+		cfg.load(SETTINGS)
+		cfg.set_value("graphics", "pathtrace", on)
+		cfg.save(SETTINGS)
+	if pause_menu:
+		pause_menu.show_pathtrace(on)
+
+
+func pathtrace_on() -> bool:
+	return _pathtrace != null and _pathtrace.enabled
 
 
 func _register_inputs() -> void:
@@ -1484,6 +1538,7 @@ func _register_inputs() -> void:
 	_key("tool_5", KEY_5)
 	_key("tool_6", KEY_6)
 	_key("build_hotbar", KEY_B)
+	_key("fullscreen", KEY_F11)
 	_key("inventory", KEY_TAB)
 	if not InputMap.has_action("use"):
 		InputMap.add_action("use")

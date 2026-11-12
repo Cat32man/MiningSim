@@ -365,6 +365,8 @@ func _build_marks() -> void:
 		_ring(s[0], s[1])
 	_tag(table.global_position + Vector3(0, 4, 0), "▼ TABLE", Color(1.0, 0.85, 0.5), 30)
 	_tag(player.global_position + Vector3(0, 3, 0), "● YOU", Color(0.6, 1.0, 0.7), 26)
+	for other in get_tree().get_nodes_in_group("coop_players"):
+		_tag(other.global_position + Vector3(0, 3, 0), "● " + other.label_text.to_upper(), other.color.lightened(0.3), 24)
 	for t in get_tree().get_nodes_in_group("scan_towers"):
 		if not t.ghost:
 			_tag(t.global_position + Vector3(0, 6, 0), "▲ TOWER", Color(1.0, 0.75, 0.4), 22)

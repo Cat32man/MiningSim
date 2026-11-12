@@ -29,6 +29,7 @@ var _last_pos := Vector3.ZERO
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS  # keeps moving while this game is paused
+	add_to_group("coop_players")  # the scanners show them
 	_body = Node3D.new()
 	add_child(_body)
 	var suit := _mat(color.darkened(0.35), 0.0, 0.8)

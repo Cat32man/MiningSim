@@ -21,6 +21,8 @@ func _init() -> void:
 
 ## Relay server addresses, tried in order (see server/relay.py). Fill in your own.
 const RELAY := []
+## Where the in-game updater looks for manifest.json (see scripts/update/updates.gd).
+const UPDATE_URLS := []
 const SECRET := "%s"
 const CERT := \"\"\"%s\"\"\"
 const PRIVATE := \"\"\"%s\"\"\"

@@ -97,6 +97,8 @@ func _ready() -> void:
 	ThemeDB.fallback_font = preload("res://assets/fonts/ui_font.tres")
 	# Menus and Esc handling must keep working while the game tree is paused.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if OS.get_cmdline_user_args().has("--print-version"):
+		print("VERSION %d (built as v%d)" % [Updates.version, Updates.base_version])
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--selftest":
 			_selftest = true

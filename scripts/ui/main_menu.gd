@@ -23,6 +23,7 @@ var _glow_tex: GradientTexture2D
 var _dust: CPUParticles2D
 var _t := 0.0
 var _note: Label
+var _restart: Button
 var _address: LineEdit
 const COOP_CFG := "user://coop.cfg"
 ## Slot waiting for a second click to confirm overwrite / delete.
@@ -43,7 +44,7 @@ func _ready() -> void:
 	var title := UI.label("MININGSIM", 64, ACCENT)
 	title.autowrap_mode = TextServer.AUTOWRAP_OFF
 	column.add_child(title)
-	var subtitle := UI.label("Dig deep. Build out. Don't wake the swarm.   ·   prototype build", 18, DIM)
+	var subtitle := UI.label("Dig deep. Build out. Don't wake the swarm.   ·   prototype v%d" % Updates.version, 18, DIM)
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_OFF
 	column.add_child(subtitle)
 	var gap := Control.new()
@@ -72,6 +73,12 @@ func _ready() -> void:
 	if cfg.load(COOP_CFG) == OK:
 		_address.text = cfg.get_value("coop", "address", "")
 	_address.text_submitted.connect(func(_t): _join())
+	_restart = _button("Restart", func(): Updates.restart(), true)
+	_restart.size_flags_vertical = Control.SIZE_SHRINK_END
+	_restart.visible = false
+	footer.add_child(_restart)
+	Updates.status.connect(_on_update)
+	Updates.check()
 	var join := _button("Join co-op", _join, false)
 	join.size_flags_vertical = Control.SIZE_SHRINK_END
 	if not OS.has_feature("web"):  # browsers can't do co-op's UDP networking
@@ -215,6 +222,11 @@ func _card(slot: int) -> Control:
 		del_b.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
 	buttons.add_child(small)
 	return card
+
+
+func _on_update(text: String, ready: bool) -> void:
+	set_note(text)
+	_restart.visible = ready
 
 
 func _join() -> void:

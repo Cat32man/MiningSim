@@ -359,3 +359,10 @@ The step between the fire caves and the next biome.
 - Relay (server/relay.py, systemd unit server/miningsim-relay.service, UDP 24690 control + 24691-24694 one join port per hosted game): the host's game keeps a UDP tunnel to the relay (addresses in the private key file's RELAY list), registers with an HMAC of the shared secret, and shows "Join: <public ip>:<port>" in the Esc menu. Friends type that; their packets are passed through untouched (still DTLS end to end). Installed on the user's server (home.olympus) at /opt/miningsim-relay, secret in /etc/miningsim-relay/secret. For friends outside the house the Verizon router must forward UDP 24690-24694 to the server, like Valheim's 2456-2457.
 - Web builds (GitHub Pages) can't use this: browsers have no UDP/ENet, and a key inside a public web build is readable by anyone.
 - Next: shared progress.
+
+## Updates
+- Version: `application/config/version` in project.godot (an integer, bump it per release). Shown on the title screen.
+- A release only changes the game-data pack, never the engine, so an update is the whole pack (~2.6 MB). `tools/release.sh` exports every build, packs the update (`--export-pack "macOS"`, which has all desktop texture formats) with scripts/tools/make_update.gd, and uploads `update-<v>.bin` + `manifest.json` to /var/www/miningsim on the server (served at https://mrossthornton.com/miningsim/).
+- Update files are AES-256-CBC encrypted + HMAC-SHA256 with keys derived from the co-op secret (the pack contains the key). Wrong/altered files are refused.
+- The Updates autoload (scripts/update/updates.gd) checks on the title screen (exported builds only), saves the pack as user://update/game.pck, and offers Restart; at start-up it loads that pack over the built-in one if it's newer than the build and for the same engine version. A Godot upgrade needs new full builds (the title screen says so).
+

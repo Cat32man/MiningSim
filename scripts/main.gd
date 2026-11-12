@@ -149,9 +149,13 @@ func _ready() -> void:
 		# Unsaved test world, opened for co-op straight away.
 		_start_game(-1, {})
 		_open_coop(NetSession.LOCAL)
-	elif OS.get_cmdline_user_args().has("--join"):
+	elif Array(OS.get_cmdline_user_args()).any(func(a): return a.begins_with("--join")):
 		_show_menu()
-		_join_coop(NetSession.LOCAL)
+		var at := NetSession.LOCAL
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--join="):
+				at = a.trim_prefix("--join=")
+		_join_coop(at)
 	elif _fight_arbiter:
 		# Straight into THE ARBITER's chamber (nothing is saved). It wakes as the caves load.
 		_start_game(-1, {})
@@ -198,7 +202,10 @@ func _open_coop(bind := "*") -> void:
 		"chunks": world.export_modified(), "net_edits": world.export_pending(),
 		"buildings": grid.get_state(), "pod_storage": pod.storage.to_data()}
 	net.players_changed.connect(func(n: int): player._flash("%d players" % n))
+	net.relay_ready.connect(func(_a): pause_menu.set_status(_coop_status()))
 	_hook_net()
+	if bind != NetSession.LOCAL or Array(OS.get_cmdline_user_args()).any(func(a): return a.begins_with("--relay=")):
+		net.start_relay()
 	pause_menu.set_status(_coop_status())
 
 
@@ -210,7 +217,8 @@ func _coop_status() -> String:
 		if a.begins_with("192.168.") or a.begins_with("10.") or a.begins_with("172."):
 			lan = a
 			break
-	return "Co-op open · port %d%s" % [NetSession.PORT, (" · LAN %s" % lan) if lan != "" else ""]
+	var where := "Join: %s" % net.relay_address if net and net.relay_address != "" else "Co-op open · port %d" % NetSession.PORT
+	return where + ((" · LAN %s" % lan) if lan != "" else "")
 
 
 ## Client: connects, waits for the host's world, then starts in it.

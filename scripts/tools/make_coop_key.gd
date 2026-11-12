@@ -19,6 +19,8 @@ func _init() -> void:
 ## Private co-op key, made by scripts/tools/make_coop_key.gd. Never commit this file:
 ## anyone with it can join (and host for) your games.
 
+## Relay server addresses, tried in order (see server/relay.py). Fill in your own.
+const RELAY := []
 const SECRET := "%s"
 const CERT := \"\"\"%s\"\"\"
 const PRIVATE := \"\"\"%s\"\"\"

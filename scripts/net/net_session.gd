@@ -9,11 +9,17 @@ extends Node
 ## and boss (they go for whoever's closest); joiners see copies that follow them, and their
 ## hits go to the host's. Each player's copy of a projectile only hurts that player.
 ## Progress isn't shared yet.
+##
+## Relay (server/relay.py): so friends don't need port forwarding, the host also keeps a
+## UDP tunnel open to the relay listed in the key file. The relay hands out a join port;
+## friends connect to relay:port and their packets come down the tunnel, where each one gets
+## its own local socket into our ENet server, so to ENet they look like ordinary players.
 
 signal joined(data: Dictionary)  # client: the host's world arrived
 signal failed(text: String)  # client: couldn't connect
 signal host_left  # client: the host closed the game
 signal players_changed(count: int)
+signal relay_ready(address: String)  # host: friends can join at this address
 
 const RemotePlayer = preload("res://scripts/net/remote_player.gd")
 const Bug = preload("res://scripts/enemies/bug.gd")
@@ -26,6 +32,11 @@ const CERT_NAME := "miningsim"
 const PROTOCOL := 1  # bump when co-op messages change: older builds then can't join
 const LOCAL := "127.0.0.1"
 const PORT := 24680
+const RELAY_PORT := 24690
+const RELAY_TAG := "miningsim-relay"
+const RELAY_RETRY := 2.0
+const RELAY_KEEPALIVE := 5.0
+const RELAY_LOST := 15.0  # no word from the relay this long: register again
 const MAX_PLAYERS := 4
 const SEND_RATE := 20.0
 const JOIN_TIMEOUT := 10.0
@@ -57,6 +68,13 @@ var _puppets := {}  # joiner: id -> copy of the host's bug/boss
 var _secret := PackedByteArray()
 var _challenges := {}  # host: peer id -> random bytes it must sign
 var _joined := false  # joiner: the host's world has arrived
+var relay_address := ""  # host: where friends join through the relay ("" until it answers)
+var _relay: PacketPeerUDP
+var _relay_servers: Array = []
+var _relay_try := 0
+var _relay_t := 0.0
+var _relay_heard := 0.0
+var _links := {}  # relay joiner id -> PacketPeerUDP into our own ENet server
 
 
 func _ready() -> void:
@@ -101,12 +119,29 @@ func host(bind := "*") -> Error:
 	return OK
 
 
+## "host", "host:port" or "[ipv6]:port".
+static func split_address(address: String) -> Array:
+	address = address.strip_edges()
+	var port := PORT
+	if address.begins_with("["):
+		var end := address.find("]")
+		var rest := address.substr(end + 1)
+		if rest.begins_with(":") and rest.substr(1).is_valid_int():
+			port = rest.substr(1).to_int()
+		address = address.substr(1, end - 1)
+	elif address.count(":") == 1 and address.get_slice(":", 1).is_valid_int():
+		port = address.get_slice(":", 1).to_int()
+		address = address.get_slice(":", 0)
+	return [address, port]
+
+
 func join(address: String) -> Error:
 	var k = keys()
 	if k == null:
 		return ERR_UNCONFIGURED
+	var at := split_address(address)
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_client(address, PORT)
+	var err := peer.create_client(at[0], at[1])
 	if err != OK:
 		return err
 	var cert := X509Certificate.new()
@@ -125,6 +160,115 @@ func join(address: String) -> Error:
 	multiplayer.multiplayer_peer = peer
 	_join_t = JOIN_TIMEOUT
 	return OK
+
+
+# --- Relay tunnel (host) -------------------------------------------------------------
+
+## Host: also be reachable through the relay server named in the key file.
+func start_relay() -> bool:
+	var k = keys()
+	if k == null or not is_host:
+		return false
+	_relay_servers = k.get_script_constant_map().get("RELAY", [])
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--relay="):
+			_relay_servers = [arg.trim_prefix("--relay=")]  # test: a relay on this PC
+	if _relay_servers.is_empty():
+		return false
+	_relay_try = -1
+	_next_relay()
+	return true
+
+
+## Tries the next relay address (the LAN name works at home, the public IP elsewhere).
+func _next_relay() -> void:
+	_close_relay()
+	for i in _relay_servers.size():
+		_relay_try = (_relay_try + 1) % _relay_servers.size()
+		var name: String = _relay_servers[_relay_try]
+		var ip := name if name.is_valid_ip_address() else IP.resolve_hostname(name, IP.TYPE_IPV4)
+		if ip == "":
+			continue
+		_relay = PacketPeerUDP.new()
+		if _relay.connect_to_host(ip, RELAY_PORT) != OK:
+			_relay = null
+			continue
+		_relay_t = 0.0
+		_relay_heard = Time.get_ticks_msec() / 1000.0
+		return
+
+
+func _close_relay() -> void:
+	if _relay:
+		_relay.close()
+		_relay = null
+	for link in _links.values():
+		link.close()
+	_links.clear()
+	relay_address = ""
+
+
+func _poll_relay(delta: float) -> void:
+	if _relay == null:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	while _relay and _relay.get_available_packet_count() > 0:
+		var pkt := _relay.get_packet()
+		_relay_heard = now
+		if pkt.size() >= 5 and pkt[0] == 0x44:  # "D": a joiner's packet
+			var id := pkt.decode_u32(1)
+			var link: PacketPeerUDP = _links.get(id)
+			if link == null:
+				link = PacketPeerUDP.new()
+				link.bind(0, LOCAL)
+				link.connect_to_host(LOCAL, PORT)
+				_links[id] = link
+			link.put_packet(pkt.slice(5))
+		elif pkt.size() == 5 and pkt[0] == 0x58:  # "X": that joiner went quiet
+			var gone = _links.get(pkt.decode_u32(1))
+			if gone:
+				gone.close()
+			_links.erase(pkt.decode_u32(1))
+		else:
+			_relay_control(pkt)
+	if _relay == null:
+		return
+	# Our server's replies go back up the tunnel to each joiner.
+	for id in _links:
+		var link: PacketPeerUDP = _links[id]
+		while link.get_available_packet_count() > 0:
+			var out := PackedByteArray([0x44, 0, 0, 0, 0])
+			out.encode_u32(1, id)
+			_relay.put_packet(out + link.get_packet())
+	_relay_t -= delta
+	if _relay_t <= 0.0:
+		_relay_t = RELAY_KEEPALIVE if relay_address != "" else RELAY_RETRY
+		_relay.put_packet(("MSR1K" if relay_address != "" else "MSR1H").to_ascii_buffer())
+	if now - _relay_heard > RELAY_LOST:
+		var was := relay_address
+		_next_relay()
+		if was != "":
+			relay_ready.emit("")  # lost it; trying again
+
+
+func _relay_control(pkt: PackedByteArray) -> void:
+	var head := pkt.slice(0, 5).get_string_from_ascii()
+	match head:
+		"MSR1C":  # challenge: prove we're one of our builds
+			var answer := Crypto.new().hmac_digest(HashingContext.HASH_SHA256, _secret,
+				pkt.slice(5) + RELAY_TAG.to_utf8_buffer())
+			_relay.put_packet("MSR1A".to_ascii_buffer() + answer)
+		"MSR1O":  # registered: friends join at public address : port
+			var port := pkt.decode_u16(5)
+			var public := pkt.slice(7).get_string_from_utf8()
+			var addr := "%s:%d" % [public if public != "" else _relay_servers[_relay_try], port]
+			if addr != relay_address:
+				relay_address = addr
+				print("Co-op: relay open at ", addr)
+				relay_ready.emit(addr)
+		"MSR1F":  # relay forgot us (restarted) or is full: start over
+			relay_address = ""
+			_relay_t = RELAY_RETRY
 
 
 # --- Letting players in -------------------------------------------------------------
@@ -168,6 +312,7 @@ func _sign(challenge: PackedByteArray) -> PackedByteArray:
 
 
 func close() -> void:
+	_close_relay()
 	if multiplayer.multiplayer_peer:
 		multiplayer.multiplayer_peer.close()
 		multiplayer.multiplayer_peer = null
@@ -188,6 +333,7 @@ func _fail(text: String) -> void:
 
 
 func _process(delta: float) -> void:
+	_poll_relay(delta)
 	if _join_t > 0.0:
 		_join_t -= delta
 		if _join_t <= 0.0:

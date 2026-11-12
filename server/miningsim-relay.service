@@ -1,0 +1,25 @@
+[Unit]
+Description=MiningSim co-op relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/miningsim-relay/relay.py --secret-file ${CREDENTIALS_DIRECTORY}/secret
+LoadCredential=secret:/etc/miningsim-relay/secret
+DynamicUser=yes
+Restart=on-failure
+RestartSec=5
+# Locked down: it only needs UDP sockets and outbound HTTPS (public IP lookup).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

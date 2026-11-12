@@ -1,0 +1,2 @@
+Roboto.ttf: Roboto by Christian Robertson / Google, Apache License 2.0
+(https://www.apache.org/licenses/LICENSE-2.0). Used as the fallback where Bahnschrift is missing (web, Linux, macOS).

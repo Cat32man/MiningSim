@@ -21,7 +21,8 @@ func _ready() -> void:
 	box.add_child(UI.label("PAUSED", 26, Color(1.0, 0.75, 0.4)))
 	box.add_child(UI.button("Resume", func(): resume_pressed.emit()))
 	box.add_child(UI.button("Unstuck", func(): unstuck_pressed.emit()))
-	box.add_child(UI.button("Open to co-op", func(): coop_pressed.emit()))
+	if not OS.has_feature("web"):  # browsers can't do co-op's UDP networking
+		box.add_child(UI.button("Open to co-op", func(): coop_pressed.emit()))
 	box.add_child(UI.button("Save", func(): save_pressed.emit()))
 	box.add_child(UI.button("Save & quit to menu", func(): save_quit_pressed.emit()))
 	box.add_child(UI.button("Save & quit to desktop", func(): quit_desktop_pressed.emit()))

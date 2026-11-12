@@ -72,10 +72,11 @@ func _ready() -> void:
 	if cfg.load(COOP_CFG) == OK:
 		_address.text = cfg.get_value("coop", "address", "")
 	_address.text_submitted.connect(func(_t): _join())
-	footer.add_child(_address)
 	var join := _button("Join co-op", _join, false)
 	join.size_flags_vertical = Control.SIZE_SHRINK_END
-	footer.add_child(join)
+	if not OS.has_feature("web"):  # browsers can't do co-op's UDP networking
+		footer.add_child(_address)
+		footer.add_child(join)
 	var texts := _button("Text editor", func(): text_editor.emit(), false)
 	texts.size_flags_vertical = Control.SIZE_SHRINK_END
 	footer.add_child(texts)

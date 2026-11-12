@@ -1,5 +1,8 @@
-[gd_resource type="SystemFont" format=3]
+[gd_resource type="SystemFont" load_steps=2 format=3]
+
+[ext_resource type="FontFile" path="res://assets/fonts/Roboto.ttf" id="1"]
 
 [resource]
 font_names = PackedStringArray("Bahnschrift", "DIN Alternate", "Segoe UI", "Sans-Serif")
 font_weight = 500
+fallbacks = Array[Font]([ExtResource("1")])

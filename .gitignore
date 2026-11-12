@@ -9,3 +9,6 @@ Thumbs.db
 # Private co-op key (see scripts/tools/make_coop_key.gd)
 scripts/net/coop_key.gd
 scripts/net/coop_key.gd.uid
+
+# Exported builds (contain the private co-op key)
+builds/

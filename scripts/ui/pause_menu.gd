@@ -35,9 +35,9 @@ func _ready() -> void:
 	box.add_child(_status)
 
 
-func show_pathtrace(on: bool) -> void:
+func show_pathtrace(mode: String) -> void:
 	if _pathtrace:
-		_pathtrace.text = "Path tracing: On" if on else "Path tracing: Off"
+		_pathtrace.text = "Path tracing: " + mode.capitalize()
 
 
 func set_status(text: String) -> void:

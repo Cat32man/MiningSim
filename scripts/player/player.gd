@@ -201,6 +201,10 @@ var _drill_t := 0.0
 var _drill_stopping := false
 var _bob_phase := 0.0
 var _bob_amount := 0.0
+## Mouse-look pitch, kept as one number: turning the camera about its own (rolled) axis
+## could carry it past straight up/down and flip the view.
+var _look_pitch := 0.0
+const PITCH_LIMIT := 1.4  # ~80 degrees up or down
 var _cam_dip := 0.0  # forward-lean part of the camera pitch (kept apart from mouse look)
 var _land_y := 0.0  # springy head offset from jumps and landings
 var _land_v := 0.0
@@ -228,7 +232,8 @@ func _ready() -> void:
 	camera.position.y = 0.7
 	camera.fov = 80.0
 	camera.near = 0.02  # the depth-squashed drill viewmodel sits very close to the lens
-	camera.rotation.x = _pending_pitch
+	_look_pitch = clampf(_pending_pitch, -PITCH_LIMIT, PITCH_LIMIT)
+	camera.rotation.x = _look_pitch
 	add_child(camera)
 
 	flashlight = SpotLight3D.new()
@@ -264,8 +269,8 @@ func _input(event: InputEvent) -> void:
 	# Mouse-look reads raw input so HUD controls can never swallow it.
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		rotate_y(-event.relative.x * MOUSE_SENS)
-		camera.rotate_x(-event.relative.y * MOUSE_SENS)
-		camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)
+		_look_pitch = clampf(_look_pitch - event.relative.y * MOUSE_SENS, -PITCH_LIMIT, PITCH_LIMIT)
+		camera.rotation = Vector3(clampf(_look_pitch + _cam_dip, -PITCH_LIMIT, PITCH_LIMIT), 0.0, camera.rotation.z)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -518,7 +523,7 @@ func take_damage(amount: float, _from: Vector3) -> void:
 		var t := create_tween().set_parallel().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 		t.tween_property(camera, "position:y", -0.55, 0.9)
 		t.tween_property(camera, "rotation:z", 0.55, 0.9)
-		t.tween_property(camera, "rotation:x", -0.25, 0.9)
+		t.tween_property(self, "_look_pitch", -0.25, 0.9)
 		died.emit()
 
 
@@ -594,6 +599,7 @@ func respawn(at: Vector3) -> void:
 	_safe_spots.clear()  # the trail leads back to where you died
 	camera.position.y = 0.7
 	camera.rotation = Vector3.ZERO
+	_look_pitch = 0.0
 	shaken_time = SHAKEN_TIME
 	health = max_health()
 	armor = armor_max()
@@ -1361,7 +1367,7 @@ func get_state() -> Dictionary:
 	return {
 		"pos": global_position,
 		"yaw": rotation.y,
-		"pitch": camera.rotation.x - _cam_dip,
+		"pitch": _look_pitch,
 		"fuel": fuel,
 		"flares": flares,
 		"backpack": backpack.to_data(),
@@ -1374,8 +1380,9 @@ func apply_state(s: Dictionary) -> void:
 	position = s.get("pos", position)
 	rotation.y = s.get("yaw", 0.0)
 	_pending_pitch = s.get("pitch", 0.0)
+	_look_pitch = clampf(_pending_pitch, -PITCH_LIMIT, PITCH_LIMIT)
 	if camera:
-		camera.rotation.x = _pending_pitch
+		camera.rotation.x = _look_pitch
 	fuel = s.get("fuel", fuel)
 	flares = s.get("flares", flares)
 	apply_blueprints()  # a bought backpack extension must exist before its slots load
@@ -1663,7 +1670,8 @@ func _animate_camera(delta: float) -> void:
 	var t := minf(delta * 7.0, 1.0)
 	camera.rotation.z = lerpf(camera.rotation.z, roll, t)
 	var new_dip := lerpf(_cam_dip, dip, t)
-	camera.rotation.x = clampf(camera.rotation.x - _cam_dip + new_dip, -1.5, 1.5)
+	camera.rotation.x = clampf(_look_pitch + new_dip, -PITCH_LIMIT, PITCH_LIMIT)
+	camera.rotation.y = 0.0  # all turning is on the body
 	_cam_dip = new_dip
 
 

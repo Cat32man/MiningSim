@@ -837,12 +837,7 @@ func _sync_machines(delta: float) -> void:
 			if not _known.has(k):
 				_known[k] = bytes
 			elif _known[k] != bytes:
-				_known[k] = bytes
-				_hold[k] = HOLD
-				if k == PROGRESS:
-					s.append(_progress_seen)  # the host merges what changed since
-					_progress_seen = progress.shared_dict()
-				_machine_edit.rpc_id(1, k, s)
+				_send_change(k, s, bytes)
 		# A cache we emptied (and freed) here: empty it at the host too.
 		for k in _known.keys():
 			if k >= CACHE_BASE and not keys.has(k):
@@ -905,8 +900,27 @@ func _machines(changes: Dictionary) -> void:
 	for k in changes:
 		if _hold.has(k):
 			continue
+		# Changed here since our last check (it runs 10x a second)? Ours goes first: taking
+		# the host's copy now would put back a battery that's already in our backpack.
+		var mine = _blob(k)
+		if mine != null and _known.has(k):
+			var bytes := var_to_bytes(mine)
+			if bytes != _known[k]:
+				_send_change(k, mine, bytes)
+				continue
 		_apply_blob(k, changes[k])
 		_known[k] = var_to_bytes(_blob(k))
+
+
+## Joiner: send our change to a machine (or progress) to the host, and ignore the host's
+## copy of it for a moment while ours is on its way.
+func _send_change(k: int, s: Array, bytes: PackedByteArray) -> void:
+	_known[k] = bytes
+	_hold[k] = HOLD
+	if k == PROGRESS:
+		s.append(_progress_seen)  # the host merges what changed since
+		_progress_seen = progress.shared_dict()
+	_machine_edit.rpc_id(1, k, s)
 
 
 @rpc("any_peer", "reliable")

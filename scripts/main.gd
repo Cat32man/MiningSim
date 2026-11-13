@@ -678,6 +678,47 @@ func drop_cache(pos: Vector3, stacks: Array) -> void:
 			net.cache_added(c)
 
 
+## Co-op test (--duptest): a charger whose contents keep changing (like charging) on the
+## host, and a joiner moving one battery in and out of it fast. There must still be
+## exactly one battery at the end.
+func _dup_test() -> void:
+	var Inv = load("res://scripts/items/inventory.gd")
+	if net.is_host:
+		var c := Buildables.make("charger")
+		c.position = player.global_position + Vector3(3, 0, 0)
+		grid.add(c)
+		var tick := Timer.new()
+		tick.wait_time = 0.05
+		tick.autostart = true
+		tick.timeout.connect(func():
+			for st in c.slots_inv.slots:
+				if st:
+					st["energy"] = fmod(st["energy"] + 7.0, 6000.0))
+		_game.add_child(tick)
+		get_tree().create_timer(62.0).timeout.connect(func():
+			print("DUP host: charger %d" % c.slots_inv.count_of(Items.BATTERY)))
+		return
+	await get_tree().create_timer(3.0).timeout
+	var ch = null
+	for b in grid.buildings:
+		if b.build_id == "charger":
+			ch = b
+	if ch == null:
+		print("DUP: no charger")
+		return
+	player.backpack.add_stack(Items.new_battery(10.0))
+	for i in 30:
+		var bi: int = player.backpack.slots.find_custom(func(st): return st != null and st["id"] == Items.BATTERY)
+		if bi >= 0 and ch.slots_inv.slots[0] == null:
+			Inv.transfer(player.backpack, bi, ch.slots_inv, 0)
+		await get_tree().create_timer(randf_range(0.65, 0.9)).timeout
+		if ch.slots_inv.slots[0] != null:
+			Inv.transfer(ch.slots_inv, 0, player.backpack, player.backpack.slots.find(null))
+		await get_tree().create_timer(randf_range(0.65, 0.9)).timeout
+	await get_tree().create_timer(2.0).timeout
+	print("DUP joiner: backpack %d, charger %d" % [player.backpack.count_of(Items.BATTERY), ch.slots_inv.count_of(Items.BATTERY)])
+
+
 ## A body or cache with these slots. Co-op: the host tells everyone; `cid` is the host's id
 ## for one that came over the network.
 func spawn_cache(kind: String, pos: Vector3, slots: Array, cid := 0) -> Node3D:
@@ -833,6 +874,8 @@ func _process(delta: float) -> void:
 			hud.flash_damage()  # brief red fade as you come back in
 		_ready_time = _clock
 		print("Caves ready after %.2fs with %d chunks" % [_clock, world.chunk_count()])
+		if net and OS.get_cmdline_user_args().has("--duptest"):
+			_dup_test()
 		if net and not net.is_host and OS.get_cmdline_user_args().has("--rejointest"):
 			# Test: report the backpack we came back with; optionally pick up 9 iron.
 			print("Rejoin: iron %d" % player.backpack.count_of(Items.IRON))
@@ -932,7 +975,7 @@ func _run_selftest() -> void:
 			print("Wall found at ", wall)
 			player.global_position = wall - Vector3(2.0, 0.7, 0)
 			player.rotation.y = -PI / 2  # face +x
-			player.camera.rotation.x = 0.0
+			player._look_pitch = 0.0
 			_test_step = 1
 		1:
 			var probe := Vector3i((player.global_position + Vector3(2.4, 0.7, 0)).round())
@@ -1240,7 +1283,7 @@ func _run_screenshot() -> void:
 			player.active = false
 			player.global_position = sample + dir * 2.2 - Vector3(0, 0.55, 0)
 			player.rotation.y = atan2(dir.x, dir.z)
-			player.camera.rotation.x = -0.1
+			player._look_pitch = -0.1
 			if OS.get_cmdline_user_args().has("--shredder"):
 				var shred = Buildables.make("shredder")
 				var sx := dir.cross(Vector3.UP).normalized()
@@ -1249,7 +1292,7 @@ func _run_screenshot() -> void:
 				grid.add(shred)
 				shred.scan_vein()
 				player.global_position += dir * 1.0 + Vector3(0, 0.3, 0)
-				player.camera.rotation.x = -0.35
+				player._look_pitch = -0.35
 		else:
 			player.throw_flare()
 		if _shot_drill:
@@ -1307,7 +1350,7 @@ func _run_screenshot() -> void:
 			print("Seal chamber at %s" % c)
 			player.global_position = c - sd * 4.0 + Vector3(0, g.SEAL_FLOOR + 1.0, 0)
 			player.rotation.y = atan2(-sd.x, -sd.z)
-			player.camera.rotation.x = 0.12
+			player._look_pitch = 0.12
 			player.active = false
 			director.bosses_defeated["arbiter"] = true  # keep the director from waking a live one
 		if OS.get_cmdline_user_args().has("--arena"):
@@ -1324,7 +1367,7 @@ func _run_screenshot() -> void:
 			var edge := Vector3(1, 0, 0.3).normalized() * 14.0
 			player.global_position = best + edge + Vector3(0, g.ARENA_FLOOR + 0.6, 0)
 			player.rotation.y = atan2(edge.x, edge.z)
-			player.camera.rotation.x = 0.05
+			player._look_pitch = 0.05
 			player.active = false
 			player.equipment.add_stack({"id": Items.THERMAL_SUIT, "count": 1})
 		if OS.get_cmdline_user_args().has("--floorshredder"):
@@ -1338,12 +1381,12 @@ func _run_screenshot() -> void:
 				shred.position = hit["position"]
 				grid.add(shred)
 				print("Floor shredder at %s" % shred.position)
-			player.camera.rotation.x = -0.45
+			player._look_pitch = -0.45
 		if OS.get_cmdline_user_args().has("--elevator"):
 			# Look at the elevator from the spawn; with --shop, repaired and its shop open.
 			var d: Vector3 = ELEVATOR_POS - player.global_position
 			player.rotation.y = atan2(-d.x, -d.z)
-			player.camera.rotation.x = 0.25
+			player._look_pitch = 0.25
 			if OS.get_cmdline_user_args().has("--shop"):
 				elevator.state = elevator.State.READY
 				elevator._apply_look()
@@ -1393,7 +1436,7 @@ func _run_screenshot() -> void:
 		if OS.get_cmdline_user_args().has("--structure"):
 			# A little hut ahead of the spawn, seen from outside with its lamp on.
 			_debug_hut(player.global_position + Vector3(0, -0.95, -5.0))
-			player.camera.rotation.x = -0.12
+			player._look_pitch = -0.12
 			player.global_position += Vector3(1.5, 0, 1.5)
 			player.rotation.y = 0.35
 		if _shot_hit:
@@ -1424,7 +1467,7 @@ func _run_screenshot() -> void:
 		player.global_position = h.seat_position()
 		if _silicon_t > 6.0:
 			print("Harvester: %s, silicon %d, coal %d" % [h.status, h.hopper.count_of(Items.SILICON), h.fuel_inv.count_of(Items.COAL)])
-			player.camera.rotation.x = -0.35
+			player._look_pitch = -0.35
 			_test_step = 3
 			_ready_time = _clock - 2.0
 	elif _silicon_spot != Vector3.INF and _test_step < 3:
@@ -1458,7 +1501,7 @@ func _run_screenshot() -> void:
 			var h = director.spawn_boss(at, "shot")
 			var d: Vector3 = at - player.global_position
 			player.rotation.y = atan2(-d.x, -d.z)
-			player.camera.rotation.x = 0.12
+			player._look_pitch = 0.12
 			h.player = null  # frozen for the picture
 			h.rotation.y = atan2(d.x, d.z)
 		_test_step = 2

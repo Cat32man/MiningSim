@@ -74,20 +74,13 @@ var _fight_arbiter := false  # --fight-arbiter: unsaved game starting in the sea
 var net  # NetSession while co-op is open (host) or joined (client)
 var _coop_players := {}  # host save: joiners' backpacks/gear/spots by player id
 const SETTINGS := "user://settings.cfg"
-## GodotPathTrace (addons/pathtrace, Windows builds only) as a compositor effect. Off unless
-## the player picks Light or Heavy in the Esc menu; remembered per computer.
-##   light: screen-space path-traced bounce light over the normal render
-##   heavy: Chronos BVH path tracer over a snapshot of the caves around you, with every
-##          lamp/flashlight/flare; anything the snapshot doesn't match (moving things, your
-##          tool, far away, just dug) keeps the normal render
+## GodotPathTrace (addons/pathtrace, Windows builds only) as a compositor effect: its Light
+## mode, screen-space path-traced bounce light over the normal render. Off unless the player
+## turns it on in the Esc menu; remembered per computer. (Its Heavy mode was tried in v6 and
+## dropped: it looked worse than the normal render.)
 var _pathtrace  # PathTraceEffect, when the extension loaded
-const PT_MODES := ["off", "light", "heavy"]
-const PT_RADIUS := 28.0  # heavy: snapshot this far around you
-const PT_ROCK := Color(0.26, 0.22, 0.18)  # heavy: albedo for the rock (its shader isn't readable)
+const PT_MODES := ["off", "light"]
 var _pt_mode := "off"
-var _pt_capture_t := 0.0
-var _pt_capture_at := Vector3.INF
-var _pt_dirty := false  # rock dug since the last snapshot
 var _world_env: WorldEnvironment
 var loading_screen: CanvasLayer
 var _cave_dust: Node3D
@@ -443,8 +436,6 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	director.boss_gone.connect(_on_boss_gone)
 	_game.add_child(director)
 	world.carved.connect(director.on_carved)
-	world.carved.connect(func(_c, _r): _pt_dirty = true)
-	_pt_capture_at = Vector3.INF
 	director.raid_started.connect(func(b): _machine_alert(b, "Bugs heading for the %s"))
 	director.base_threatened.connect(_base_alert)
 	grid.building_attacked.connect(func(b):
@@ -928,7 +919,6 @@ func _process(delta: float) -> void:
 		return
 
 	_play_time += delta
-	_pt_tick(delta)
 	if OS.get_cmdline_user_args().has("--fps") and int(_clock) != int(_clock - delta):
 		print("FPS %d" % Engine.get_frames_per_second())  # test: frame rate once a second
 	var here: Vector3 = player.vehicle.global_position if player.vehicle else player.global_position
@@ -1553,20 +1543,6 @@ func _setup_pathtrace() -> void:
 	_pathtrace.max_distance = 12.0
 	_pathtrace.rays_per_pixel = 8
 	_pathtrace.thickness = 2.0
-	# Heavy: no sky down here. 1 sample, 1 bounce: ~26 fps at 3440x1440 on an RTX 5060 Ti
-	# (each extra bounce or sample costs more than it shows after denoising).
-	_pathtrace.sky_zenith = Color.BLACK
-	_pathtrace.sky_horizon = Color.BLACK
-	_pathtrace.bounces = 1
-	_pathtrace.samples = 1
-	_pathtrace.ml_sampling = false
-	_pathtrace.max_samples = 1
-	for arg in OS.get_cmdline_user_args():  # tuning: --pt-bounces=n (heavy)
-		if arg.begins_with("--pt-bounces="):
-			_pathtrace.bounces = int(arg.trim_prefix("--pt-bounces="))
-		elif arg.begins_with("--pt-spp="):
-			_pathtrace.max_samples = int(arg.trim_prefix("--pt-spp="))
-			_pathtrace.ml_sampling = _pathtrace.max_samples > 1
 	for arg in OS.get_cmdline_user_args():  # tuning: --pt=intensity,distance,rays,thickness
 		if arg.begins_with("--pt="):
 			var v := arg.trim_prefix("--pt=").split(",")
@@ -1582,6 +1558,8 @@ func _setup_pathtrace() -> void:
 	var mode = cfg.get_value("graphics", "pathtrace", "off")
 	if mode is bool:
 		mode = "light" if mode else "off"  # saved by v5 as on/off
+	elif mode == "heavy":
+		mode = "light"  # picked in v6, which had Heavy
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--pathtrace":
 			mode = "light"
@@ -1595,9 +1573,6 @@ func set_pathtrace(mode: String, remember := true) -> void:
 		return
 	_pt_mode = mode if mode in PT_MODES else "off"
 	_pathtrace.enabled = _pt_mode != "off"
-	_pathtrace.mode = 1 if _pt_mode == "heavy" else 0
-	_pt_capture_at = Vector3.INF  # heavy: snapshot straight away
-	_pt_capture_t = 0.0
 	if remember:
 		var cfg := ConfigFile.new()
 		cfg.load(SETTINGS)
@@ -1609,28 +1584,6 @@ func set_pathtrace(mode: String, remember := true) -> void:
 
 func _next_pathtrace() -> void:
 	set_pathtrace(PT_MODES[(PT_MODES.find(_pt_mode) + 1) % PT_MODES.size()])
-
-
-## Heavy: lights every frame; a new snapshot about once a second after moving or digging.
-func _pt_tick(dt: float) -> void:
-	if _pt_mode != "heavy" or player == null:
-		return
-	var eye: Vector3 = player.camera.global_position
-	_pathtrace.update_lights(eye)
-	_pt_capture_t -= dt
-	if _pt_capture_t > 0.0 or not (_pt_dirty or eye.distance_to(_pt_capture_at) > 3.0):
-		return
-	_pt_capture_t = 1.0
-	_pt_dirty = false
-	_pt_capture_at = eye
-	# Things that move (and your own tool) stay out of the snapshot; the normal render
-	# draws them.
-	for n in [player.camera] + get_tree().get_nodes_in_group("bugs") + get_tree().get_nodes_in_group("coop_players"):
-		n.add_to_group("pt_skip")
-	var t0 := Time.get_ticks_usec()
-	var tris: int = _pathtrace.capture_near(_game, eye, PT_RADIUS, PT_ROCK)
-	if OS.get_cmdline_user_args().has("--fps"):
-		print("PT capture: %d triangles in %.1f ms" % [tris, (Time.get_ticks_usec() - t0) / 1000.0])
 
 
 func _register_inputs() -> void:

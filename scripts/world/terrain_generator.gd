@@ -44,6 +44,10 @@ const HARD_ROCK_THRESHOLD := 0.62
 ## Fire caves: hot pockets inside the late-game zone, past hard rock.
 const FIRE_THRESHOLD := 1.15
 const FIRE_HEAT := 0.1
+## Fire regions come from one broad heat field (a few hundred metres across) that barely
+## changes with depth, so they're big connected areas rather than scattered pockets.
+const HEAT_FREQUENCY := 0.0035
+const HEAT_DEPTH_SQUASH := 0.35
 ## Boss arenas: one per ARENA_REGION cube whose arena centre lands in the fire caves. A
 ## domed cavern with a flat floor, basalt pillars and three tunnels out. The centre is kept
 ## ARENA_MARGIN inside its cube so the whole thing (tunnels too) stays in that cube.
@@ -68,7 +72,13 @@ const SILICON_FLOOR := -8.0  # dune floor height relative to the centre
 const SILICON_TUNNELS := 2
 const SILICON_TUNNEL_LENGTH := 110.0
 const SILICON_TUNNEL_RADIUS := 3.2
-const SILICON_BIOME_REACH := 1.35  # ellipsoid scale where the biome's materials stop
+const SILICON_BIOME_REACH := 1.35  # ellipsoid scale where the dune cavern's sand bed stops
+## The silicon biome: sandstone country this far around the dune cavern (edge wobbles by up
+## to SILICON_REGION_WOBBLE), with silicon sand lying on every cave floor in it.
+const SILICON_REGION := 230.0
+const SILICON_REGION_DEPTH := 70.0
+const SILICON_REGION_WOBBLE := 45.0
+const SAND_LAYER := 2.0  # metres of sand on top of floors
 ## The Seal: a sandstone chamber off the far side of the silicon caves (away from the
 ## spawn), joined by one tunnel. Its back wall is flat and holds the sealed door; THE
 ## ARBITER guards it. Floor level with the dunes, four pillars to dodge around.
@@ -112,7 +122,7 @@ func _init(seed_value: int) -> void:
 	_setup(_biome, seed_value + 7, 0.008, 2)
 	_setup(_diamond, seed_value + 8, 0.16, 1)
 	_setup(_cobalt, seed_value + 9, 0.09, 2)
-	_setup(_heat, seed_value + 10, 0.012, 2)
+	_setup(_heat, seed_value + 10, HEAT_FREQUENCY, 1)
 	_setup(_obsidian, seed_value + 11, 0.1, 2)
 	_setup(_coal, seed_value + 12, 0.07, 2)
 	_silicon = silicon_center(seed_value)
@@ -349,16 +359,23 @@ func _seal_chamber(x: float, y: float, z: float, d: float, detail: float) -> flo
 
 
 func in_silicon(p: Vector3) -> bool:
-	return _silicon_e(p.x, p.y, p.z) < SILICON_BIOME_REACH
+	return _silicon_e(p.x, p.y, p.z) < SILICON_BIOME_REACH or _in_silicon_region(p.x, p.y, p.z)
+
+
+## The wider sandstone country around the dune cavern.
+func _in_silicon_region(x: float, y: float, z: float) -> bool:
+	var wob := _biome.get_noise_2d(x * 0.5, z * 0.5) * SILICON_REGION_WOBBLE
+	return Vector2(x - _silicon.x, z - _silicon.z).length() < SILICON_REGION + wob \
+		and absf(y - _silicon.y) < SILICON_REGION_DEPTH + wob * 0.4
 
 
 func biome(x: float, y: float, z: float) -> int:
-	if _silicon_e(x, y, z) < SILICON_BIOME_REACH or in_seal(Vector3(x, y, z)):
+	if _silicon_e(x, y, z) < SILICON_BIOME_REACH or in_seal(Vector3(x, y, z)) or _in_silicon_region(x, y, z):
 		return BIOME_SILICON
 	var score := _biome.get_noise_3d(x, y, z) * 0.6 \
 		+ Vector2(x, z).length() / BIOME_DISTANCE_SCALE \
 		+ maxf(-y, 0.0) / BIOME_DEPTH_SCALE
-	if score > FIRE_THRESHOLD and _heat.get_noise_3d(x, y, z) > FIRE_HEAT:
+	if score > FIRE_THRESHOLD and _heat.get_noise_3d(x, y * HEAT_DEPTH_SQUASH, z) > FIRE_HEAT:
 		return BIOME_FIRE
 	return BIOME_HARD if score > HARD_ROCK_THRESHOLD else BIOME_NORMAL
 
@@ -370,9 +387,14 @@ func material(x: float, y: float, z: float) -> int:
 	if b == BIOME_SILICON:
 		if in_seal(Vector3(x, y, z)):
 			return MAT_SANDSTONE  # dressed stone, no sand to harvest in here
-		# A deep bed of sand under the dunes, mostly the rich golden kind; sandstone around it.
-		var top := _dune_height(x, z)
-		if y < top + 1.0 and y > top - 7.0:
+		if _silicon_e(x, y, z) < SILICON_BIOME_REACH:
+			# A deep bed of sand under the dunes, mostly the rich golden kind; sandstone around it.
+			var top := _dune_height(x, z)
+			if y < top + 1.0 and y > top - 7.0:
+				return MAT_SAND if _iron.get_noise_3d(x, y, z) > 0.45 else MAT_SILICON_SAND
+			return MAT_SANDSTONE
+		# Out in the wider region: sand drifted onto every floor, sandstone everywhere else.
+		if density(x, y + SAND_LAYER, z) < 0.0:
 			return MAT_SAND if _iron.get_noise_3d(x, y, z) > 0.45 else MAT_SILICON_SAND
 		return MAT_SANDSTONE
 	if b != BIOME_FIRE and in_arena(Vector3(x, y, z)):

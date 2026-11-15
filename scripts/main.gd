@@ -1332,6 +1332,23 @@ func _run_screenshot() -> void:
 			print("Silicon caves at %s" % _silicon_spot)
 			player.global_position = _silicon_spot
 			player.active = false
+		if OS.get_cmdline_user_args().has("--silicon-region"):
+			# Out in the wider silicon country: the first cave floor found ~150 m from the dunes.
+			var g = world._main_gen
+			var c: Vector3 = g.silicon_center(world.world_seed)
+			for k in 64:
+				var a := TAU * k / 64.0
+				var col := c + Vector3(cos(a), 0, sin(a)) * 150.0
+				for dy in range(40, -60, -1):
+					var p := col + Vector3(0, dy, 0)
+					if g.density(p.x, p.y, p.z) < 0.0 and g.density(p.x, p.y - 1.0, p.z) > 0.0 							and g.density(p.x, p.y + 2.5, p.z) < 0.0 and g.in_silicon(p):
+						_silicon_spot = p + Vector3(0, 1.2, 0)
+						break
+				if _silicon_spot != Vector3.INF:
+					break
+			print("Silicon region floor at %s" % _silicon_spot)
+			player.global_position = _silicon_spot
+			player.active = false
 		if OS.get_cmdline_user_args().has("--arbiter"):
 			# In the seal chamber, looking toward the Seal (THE ARBITER appears once terrain loads).
 			var g = world._main_gen

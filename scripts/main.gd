@@ -159,6 +159,8 @@ func _ready() -> void:
 	elif _selftest or not _screenshot_path.is_empty():
 		_start_game(-1, {})
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif OS.get_cmdline_user_args().has("--railtest"):
+		_start_game(-1, {})  # unsaved test world; _rail_test runs once the caves load
 	elif OS.get_cmdline_user_args().has("--host"):
 		# Unsaved test world, opened for co-op straight away.
 		_start_game(-1, {})
@@ -669,6 +671,95 @@ func drop_cache(pos: Vector3, stacks: Array) -> void:
 			net.cache_added(c)
 
 
+## Test (--railtest): lay a curving line with the real build controller, put a cart on it,
+## ride it at full throttle, report, screenshot, quit.
+func _rail_test() -> void:
+	if OS.get_cmdline_user_args().has("--rail-dunes"):
+		# Somewhere roomy: the dunes of the silicon caves (rolling, so the line climbs and dips).
+		var g = world._main_gen
+		var c: Vector3 = g.silicon_center(world.world_seed)
+		var spot := Vector3(c.x - 30.0, 0, c.z)
+		spot.y = g._dune_height(spot.x, spot.z) + 1.5
+		player.global_position = spot
+		player.velocity = Vector3.ZERO
+		while not world.is_ready_around(spot):
+			await get_tree().process_frame
+		for i in 30:
+			await get_tree().physics_frame
+	player.backpack.add(Items.IRON, 200)
+	player.backpack.add(Items.ELECTRUM, 20)
+	var space := get_viewport().world_3d.direct_space_state
+	var ground := func(at: Vector3) -> Dictionary:
+		return space.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 1.5, at + Vector3.DOWN * 8.0, 3))
+	# The most open way across the floor from here.
+	var fwd := Vector3.FORWARD
+	var best_run := -1
+	var to_pod: Vector3 = pod.global_position - player.global_position
+	for k in 16:
+		var d := Vector3.FORWARD.rotated(Vector3.UP, TAU * k / 16.0)
+		if d.dot(Vector3(to_pod.x, 0, to_pod.z).normalized()) > -0.5:
+			continue  # not through the pod
+		var run := 0
+		while run < 30 and not ground.call(player.global_position + d * (3.0 + run * 2.0)).is_empty():
+			run += 1
+		if run > best_run:
+			best_run = run
+			fwd = d
+	player.rotation.y = atan2(-fwd.x, -fwd.z)  # a new line starts the way you face
+	var aim: Vector3 = player.global_position + fwd * 3.0
+	builder.start("rail")
+	for i in 24:
+		var hit: Dictionary = ground.call(aim)
+		if hit.is_empty():
+			print("RAILTEST: no ground at piece %d" % i)
+			break
+		builder._ghost.visible = true
+		builder._valid = builder._place_rail(hit)
+		if not builder._valid:
+			print("RAILTEST: piece %d refused: %s" % [i, builder._why])
+		builder.try_place()
+		await get_tree().process_frame
+		var rails := get_tree().get_nodes_in_group("rails")
+		var last = rails[rails.size() - 1]
+		aim = last.end_point() + last.dir().rotated(Vector3.UP, 0.06) * 2.5  # bend a little left
+	builder.cancel()
+	var rails := get_tree().get_nodes_in_group("rails")
+	print("RAILTEST: %d rails, %d iron left" % [rails.size(), player.backpack.count_of(Items.IRON)])
+	builder.start("cart")
+	var first = rails[0]
+	var hit: Dictionary = space.intersect_ray(PhysicsRayQueryParameters3D.create(
+		first.global_transform * Vector3(0, 2, -2), first.global_transform * Vector3(0, -2, -2), 2))
+	builder._ghost.visible = true
+	builder._valid = builder._place_on_rail(hit)
+	builder.try_place()
+	builder.cancel()
+	await get_tree().process_frame
+	var cart = get_tree().get_nodes_in_group("carts")[0]
+	cart.interact(player)
+	var t0: Vector3 = cart.global_position
+	var t := 0.0
+	while t < 6.0:
+		var dt := get_physics_process_delta_time()
+		cart.drive(Vector2(0, -1), dt)
+		player.global_position = cart.seat_position()
+		await get_tree().physics_frame
+		t += dt
+	print("RAILTEST: cart went %.1f m, status '%s', speed %.1f" % [t0.distance_to(cart.global_position), cart.status, cart.speed])
+	player.exit_vehicle()
+	player.global_position = rails[rails.size() / 2].global_position + Vector3(2.5, 1.5, 3.0)
+	player.look_at(cart.global_position, Vector3.UP)
+	player.rotation.x = 0
+	player._look_pitch = -0.3
+	await get_tree().create_timer(1.0).timeout
+	var shot := ""
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--shot="):
+			shot = arg.trim_prefix("--shot=")
+	if shot != "":
+		get_viewport().get_texture().get_image().save_png(shot)
+	get_tree().quit()
+
+
 ## Co-op test (--duptest): a charger whose contents keep changing (like charging) on the
 ## host, and a joiner moving one battery in and out of it fast. There must still be
 ## exactly one battery at the end.
@@ -865,6 +956,8 @@ func _process(delta: float) -> void:
 			hud.flash_damage()  # brief red fade as you come back in
 		_ready_time = _clock
 		print("Caves ready after %.2fs with %d chunks" % [_clock, world.chunk_count()])
+		if OS.get_cmdline_user_args().has("--railtest"):
+			_rail_test()
 		if net and OS.get_cmdline_user_args().has("--duptest"):
 			_dup_test()
 		if net and not net.is_host and OS.get_cmdline_user_args().has("--rejointest"):

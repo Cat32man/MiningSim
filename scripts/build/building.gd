@@ -38,6 +38,8 @@ var battery_inv
 
 ## Walls, floors, doors and so on (structure.gd): no power, not raided, destroyed at 0 HP.
 var is_structure := false
+## Bugs pick raid targets among buildings with this on (rails and carts aren't worth it).
+var raidable := true
 
 ## Bug damage: at 0 HP the machine breaks down and does nothing until repaired (E).
 var max_hp := 100.0

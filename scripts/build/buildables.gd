@@ -16,17 +16,40 @@ const SCAN_TABLE := "scan_table"
 const SCAN_TOWER := "scan_tower"
 const HARVESTER := "harvester"
 const CHIP_PRINTER := "chip_printer"
+const RAIL := "rail"
+const CART := "cart"
 
 ## Menu order, per build-menu tab.
-const ORDER := [POLE, GENERATOR, BENCH, CHARGER, STORAGE, REFINERY, STORAGE_LARGE, BEACON, SCAN_TABLE, SCAN_TOWER,
-	HARVESTER, CHIP_PRINTER]
+const ORDER := [POLE, GENERATOR, BENCH, CHARGER, STORAGE, REFINERY, STORAGE_LARGE, BEACON, RAIL, CART,
+	SCAN_TABLE, SCAN_TOWER, HARVESTER, CHIP_PRINTER]
 const STRUCTURE_ORDER := ["foundation", "floor", "wall", "half_wall", "window", "door", "ramp", "ladder",
 	"catwalk", "lamp"]
 
 ## radius = footprint used for overlap checks when placing.
 ## mount = "floor" (flat ground, R spins it), "wall" (steep rock, R tilts it), "snap" (structure
-## pieces on the 2 m grid, R turns 90°) or "surface" (any rock or building face).
+## pieces on the 2 m grid, R turns 90°), "surface" (any rock or building face), "rail" (track:
+## joins the free end you aim near, follows the ground) or "on_rail" (sits on a rail piece).
 const DEFS := {
+	RAIL: {
+		"name": "Rail",
+		"desc": "4 m of track. Aim past a line's end to extend it.",
+		"cost": {Items.IRON: 2},
+		"radius": 0.3,
+		"mount": "rail",
+		"hp": 80.0,
+		"bite_radius": 0.8,
+		"script": "res://scripts/build/rail.gd",
+	},
+	CART: {
+		"name": "Rail cart",
+		"desc": "Ride the rails. 12 cargo slots.",
+		"cost": {Items.IRON: 30, Items.ELECTRUM: 10},
+		"radius": 1.0,
+		"mount": "on_rail",
+		"hp": 120.0,
+		"bite_radius": 1.0,
+		"script": "res://scripts/build/cart.gd",
+	},
 	POLE: {
 		"name": "Power pole",
 		"desc": "Carries power 20 m.",

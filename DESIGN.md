@@ -379,3 +379,8 @@ The step between the fire caves and the next biome.
 - Silicon: a sandstone region ~460 m across (SILICON_REGION 230 m radius, wobbly edge, ±70 m in depth) around the dune cavern; every cave floor in it has a 2 m layer of silicon sand (harvestable), the dune cavern and Seal are unchanged. in_silicon() covers the whole region (zone label, silicon_found).
 - `scripts/tools/biome_map.gd` renders top-down biome maps at a few depths (`--script ... -- <out prefix> [seed]`).
 - Existing saves: areas never dug change to the new layout; dug chunks keep what was saved.
+
+## Rails (v8)
+- Rail (2 iron, build menu): a 4 m piece. Aim near a line's free end to extend it: the new piece turns toward your aim (max ~20° per piece) and tilts to follow the ground (max ±30°, max ~15° change per piece; over a drop it keeps its slope, so it bridges). Elsewhere it starts a new line the way you face, on flat ground. Not within the drop pod's clearance.
+- Rail cart (30 iron, 10 electrum): placed on a rail. [E] ride, W forward (16 m/s top), S brake then reverse (6 m/s), Tab cargo (12 slots, Load ore / Take all). Crosses joints onto the straightest joined piece, stops at the end of a line, slopes pull a little, coasts to a stop when you get off.
+- Rails and carts aren't raid targets (Building.raidable). Both are ordinary buildings: saved, removable with X, synced in co-op.

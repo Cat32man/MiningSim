@@ -19,6 +19,12 @@ const SNAP_SEARCH := 5.0
 const PLAYER_LAYER := 8
 const Inventory = preload("res://scripts/items/inventory.gd")
 const Items = preload("res://scripts/items/items.gd")
+const Rail = preload("res://scripts/build/rail.gd")
+
+const RAIL_SNAP := 6.0  # aim this close to a line's free end to extend it
+const RAIL_TURN := 0.35  # most a new piece turns from the last (~20°)
+const RAIL_MAX_SLOPE := 0.52  # ~30°
+const RAIL_SLOPE_STEP := 0.26  # most the slope changes from one piece to the next (~15°)
 
 ## Set by main.
 var player
@@ -94,6 +100,10 @@ func _process(_dt: float) -> void:
 	match mount:
 		"snap":
 			_valid = _place_snap(hit)
+		"rail":
+			_valid = _place_rail(hit)
+		"on_rail":
+			_valid = _place_on_rail(hit)
 		"surface":
 			_ghost.global_transform = Transform3D(_basis_up(normal), pos)
 			_valid = _check_surface(pos, hit["collider"])
@@ -211,6 +221,102 @@ func _hits_player() -> bool:
 	return false
 
 
+# --- Rails ------------------------------------------------------------------------
+
+## A new rail piece: on the free line end nearest your aim (turned toward the aim, at most
+## RAIL_TURN), or a new line where you aim. Either way it tilts to follow the ground ahead
+## (over a drop it keeps its slope, so it bridges gaps).
+func _place_rail(hit: Dictionary) -> bool:
+	var aim: Vector3 = hit["position"]
+	var near: Array = get_tree().get_nodes_in_group("rails").filter(
+		func(r): return r.global_position.distance_to(aim) < RAIL_SNAP + Rail.LENGTH * 2.0)
+	var end := _free_rail_end(near, aim)
+	var start: Vector3
+	var flat: Vector3
+	var prev_pitch := 0.0
+	var joined := not end.is_empty()
+	if joined:
+		start = end[0]
+		var prev: Vector3 = end[1]
+		flat = Vector3(prev.x, 0.0, prev.z).normalized()
+		prev_pitch = asin(clampf(prev.y, -1.0, 1.0))
+		var want := Vector3(aim.x - start.x, 0.0, aim.z - start.z)
+		if want.length() > 0.5:
+			flat = flat.rotated(Vector3.UP, clampf(flat.signed_angle_to(want.normalized(), Vector3.UP), -RAIL_TURN, RAIL_TURN))
+	else:
+		if hit["normal"].y < MIN_FLATNESS:
+			_ghost.global_position = aim
+			_why = "Start a line on flat ground"
+			return false
+		start = aim
+		var look: Vector3 = -player.global_basis.z
+		flat = Vector3(look.x, 0.0, look.z).normalized()
+	var pitch := prev_pitch
+	var probe := start + flat * Rail.LENGTH
+	var q := PhysicsRayQueryParameters3D.create(probe + Vector3.UP * 3.0, probe + Vector3.DOWN * 6.0, 1)
+	var ground := get_world_3d().direct_space_state.intersect_ray(q)
+	if not ground.is_empty():
+		pitch = atan2(ground["position"].y + 0.02 - start.y, Rail.LENGTH)
+	if joined:
+		pitch = clampf(pitch, prev_pitch - RAIL_SLOPE_STEP, prev_pitch + RAIL_SLOPE_STEP)
+	pitch = clampf(pitch, -RAIL_MAX_SLOPE, RAIL_MAX_SLOPE)
+	var dir := flat * cos(pitch) + Vector3.UP * sin(pitch)
+	_ghost.global_transform = Transform3D(Basis.looking_at(dir, Vector3.UP), start)
+	for r in near:
+		if r.start_point().distance_to(start) < Rail.LINK and r.dir().dot(dir) > 0.9:
+			_why = "Already built there"
+			return false
+	var mid := start + dir * Rail.LENGTH * 0.5
+	if pod and Vector2(mid.x - pod.global_position.x, mid.z - pod.global_position.z).length() < POD_CLEARANCE + 1.0:
+		_why = "Too close to the drop pod"
+		return false
+	var w = grid.world
+	if w and w.material_at(Vector3i(mid.round())) == Materials.BEDROCK and w.density_at(Vector3i(mid.round())) > 0.0:
+		_why = "Can't build into bedrock"
+		return false
+	return true
+
+
+## [position, outward direction] of the line end nearest `aim` (within RAIL_SNAP) that has
+## no piece joined to it yet, or [] if none.
+func _free_rail_end(rails: Array, aim: Vector3) -> Array:
+	var best: Array = []
+	var best_d := RAIL_SNAP
+	for r in rails:
+		for e in [[r.end_point(), r.dir()], [r.start_point(), -r.dir()]]:
+			var d: float = e[0].distance_to(aim)
+			if d >= best_d:
+				continue
+			var taken := false
+			for o in rails:
+				if o != r and (o.start_point().distance_to(e[0]) < Rail.LINK or o.end_point().distance_to(e[0]) < Rail.LINK):
+					taken = true
+					break
+			if not taken:
+				best = e
+				best_d = d
+	return best
+
+
+## A cart goes on the rail piece you aim at, facing the way you look along it.
+func _place_on_rail(hit: Dictionary) -> bool:
+	var r = hit["collider"]
+	if not (r is Node and r.is_in_group("rails")):
+		_ghost.global_position = hit["position"]
+		_why = "Needs a rail"
+		return false
+	var a: Vector3 = r.start_point()
+	var d: Vector3 = r.dir()
+	var u := clampf((hit["position"] - a).dot(d), 1.0, Rail.LENGTH - 1.0)
+	var fwd := d if (-player.global_basis.z).dot(d) >= 0.0 else -d
+	_ghost.global_transform = Transform3D(Basis.looking_at(fwd, Vector3.UP), a + d * u + Vector3.UP * 0.02)
+	for c in get_tree().get_nodes_in_group("carts"):
+		if c.global_position.distance_to(_ghost.global_position) < 2.6:
+			_why = "Another cart is there"
+			return false
+	return true
+
+
 # --- Other mounts --------------------------------------------------------------------
 
 func _check(pos: Vector3, normal: Vector3, on) -> bool:
@@ -257,7 +363,7 @@ func try_place() -> void:
 		return
 	if not _valid:
 		match _mount():
-			"snap":
+			"snap", "rail", "on_rail":
 				player._flash(_why if _why != "" else "Can't build here")
 			"wall":
 				player._flash("Needs a rock wall")

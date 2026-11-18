@@ -243,7 +243,7 @@ func _pick_raid_target(around: Vector3) -> Node3D:
 	var running: Array = []
 	var any: Array = []
 	for b in grid.buildings:
-		if b.is_structure or b.broken or b.global_position.distance_to(around) > RAID_RANGE:
+		if b.is_structure or not b.raidable or b.broken or b.global_position.distance_to(around) > RAID_RANGE:
 			continue
 		any.append(b)
 		if b.is_running():
@@ -261,7 +261,7 @@ func next_raid_target(from: Vector3) -> Node3D:
 	var best_d := 25.0
 	for b in grid.buildings:
 		var d: float = b.global_position.distance_to(from)
-		if not b.is_structure and not b.broken and d < best_d:
+		if not b.is_structure and b.raidable and not b.broken and d < best_d:
 			best_d = d
 			best = b
 	return best

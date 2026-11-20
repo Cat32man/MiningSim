@@ -479,6 +479,16 @@ func _on_build_tap() -> void:
 		build_menu_requested.emit()
 
 
+## Every held tool and gun on screen at once, for the loading screen to hide: their shaders
+## compile while it's up, instead of freezing a slow PC the first time you switch to one.
+func show_all_tools() -> void:
+	for m in [_pick_model, _drill_model, _dagger_model]:
+		m.visible = true
+	if weapons:
+		for m in [weapons.pistol_model, weapons.smg_model, weapons.shotgun_model]:
+			m.visible = true
+
+
 func _select_tool(t: Tool) -> void:
 	if t == Tool.DRILL and not (progress and progress.drill_owned):
 		_flash("No hand drill yet")

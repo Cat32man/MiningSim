@@ -955,7 +955,9 @@ func _process(delta: float) -> void:
 	_clock += delta
 	if not player.active:
 		loading_screen.set_progress(world.ready_fraction_around(player.global_position))
+		player.show_all_tools()  # compile their shaders behind the loading screen
 	if not player.active and world.is_ready_around(player.global_position):
+		player._select_tool(player.tool)  # back to just the one in hand
 		player.active = true
 		hud.set_loading(false)
 		hud.visible = true

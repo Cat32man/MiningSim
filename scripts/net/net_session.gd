@@ -628,6 +628,11 @@ func request_place(d: Dictionary) -> void:
 
 
 func request_remove(nid: int) -> void:
+	# Its latest contents first (e.g. a Shredder's hopper we just emptied), or the host
+	# would drop what we already took as a cache: same channel, so they arrive in order.
+	var s = _blob(nid)
+	if s != null:
+		_machine_edit.rpc_id(1, nid, s)
 	_remove_req.rpc_id(1, nid)
 
 
@@ -647,6 +652,10 @@ func _place_req(d: Dictionary) -> void:
 	if is_host and grid:
 		var b = grid.net_spawn(d, true)
 		if b:
+			# A joiner's thrown Shredder scans for its vein on landing, but that ran on the
+			# joiner's own throwaway copy: the real one has to look for itself.
+			if b.has_method("scan_vein") and b.vein_mat < 0:
+				b.scan_vein()
 			building_placed(grid.describe(b))
 
 

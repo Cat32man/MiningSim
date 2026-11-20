@@ -56,9 +56,14 @@ func _deploy(at: Vector3, normal: Vector3) -> void:
 	var y := normal.normalized()
 	var x := y.cross(Vector3.FORWARD if absf(y.z) < 0.9 else Vector3.RIGHT).normalized()
 	b.transform = Transform3D(Basis(x, y, x.cross(y)), at)
-	grid.add(b)
-	b.scan_vein()
+	var joiner: bool = grid.net != null and grid.net.active() and not grid.net.is_host
+	grid.add(b)  # a co-op joiner's goes to the host, which scans the vein there
 	Sfx.play_3d("place", at, grid, 0.0, 1.4)
-	if player:
-		player._flash(b.status)
+	if joiner:
+		if player:
+			player._flash("Shredder deployed")
+	else:
+		b.scan_vein()
+		if player:
+			player._flash(b.status)
 	queue_free()

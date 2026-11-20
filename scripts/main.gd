@@ -186,8 +186,13 @@ func _ready() -> void:
 	elif OS.get_cmdline_user_args().has("--railtest"):
 		_start_game(-1, {})  # unsaved test world; _rail_test runs once the caves load
 	elif OS.get_cmdline_user_args().has("--host"):
-		# Unsaved test world, opened for co-op straight away.
-		_start_game(-1, {})
+		# Unsaved test world (or a copy of a save slot with --host-slot=N, never written back),
+		# opened for co-op straight away.
+		var copy := {}
+		for arg in OS.get_cmdline_user_args():
+			if arg.begins_with("--host-slot="):
+				copy = SaveSystem.read(int(arg.trim_prefix("--host-slot=")))
+		_start_game(-1, copy)
 		_open_coop(NetSession.LOCAL)
 	elif OS.get_cmdline_user_args().has("--connect"):
 		_show_menu()  # test: press "Connect to server"

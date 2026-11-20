@@ -30,7 +30,8 @@ declare -A OUT=(["Windows"]=builds/windows/MiningSim.exe ["macOS"]=builds/macos/
 for preset in "Windows" "macOS" "Linux"; do
 	echo "-- export $preset"
 	"$GODOT" --headless --path . --export-release "$preset" > builds/export.log 2>&1 || true
-	if grep -iE "error|fail" builds/export.log | grep -v "BUG\|unref"; then exit 1; fi
+	# Godot's own error lines only (file names like error_screen.gd are not errors).
+	if grep -E "^(SCRIPT )?ERROR|export .*failed" builds/export.log | grep -v "BUG\|unref"; then exit 1; fi
 	if [[ ! "${OUT[$preset]}" -nt "$stamp" ]]; then
 		echo "Export of $preset didn't write ${OUT[$preset]}; Godot said:" >&2
 		grep -vE "savepack|^\s*$" builds/export.log | tail -8 >&2
@@ -41,7 +42,7 @@ rm -f "$stamp"
 
 # The update: the macOS pack has every desktop texture format, so it suits all three.
 rm -f builds/update/*
-"$GODOT" --headless --path . --export-pack "macOS" builds/update/game.pck 2>&1 | grep -iE "error|fail" | grep -v "BUG\|unref" && exit 1 || true
+"$GODOT" --headless --path . --export-pack "macOS" builds/update/game.pck 2>&1 | grep -E "^(SCRIPT )?ERROR|export .*failed" | grep -v "BUG\|unref" && exit 1 || true
 "$GODOT" --headless --path . --script res://scripts/tools/make_update.gd -- builds/update/game.pck builds/update 2>&1 | grep -E "Wrote|ERROR"
 rm builds/update/game.pck
 

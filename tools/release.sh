@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Makes a release: bump application/config/version in project.godot first, then run
-#   tools/release.sh            # export every build + the update, upload the update,
-#                               # and put the web build on GitHub Pages
+#   tools/release.sh            # export the desktop builds + the update, upload the update
+# (No web build: the browser version was too laggy and was taken down in v10.)
 #   tools/release.sh --no-upload
 # The git pre-push hook (tools/git-hooks/pre-push) runs this when a push to main carries
 # a version the server doesn't have yet.
@@ -17,7 +17,7 @@ REMOTE_DIR=/var/www/miningsim
 ver=$(grep -oP '^config/version="\K[0-9]+' project.godot)
 echo "== MiningSim v$ver"
 
-mkdir -p builds/windows builds/macos builds/linux builds/web builds/web_private builds/update
+mkdir -p builds/windows builds/macos builds/linux builds/update
 # GodotPathTrace: take the newest build of the extension if its project is on this PC.
 PT_DLL=../GodotPathTrace/target/release/godot_pathtrace.dll
 if [[ -f "$PT_DLL" && "$PT_DLL" -nt addons/pathtrace/bin/godot_pathtrace.dll ]]; then
@@ -26,8 +26,8 @@ fi
 touch builds/.gdignore
 stamp=$(mktemp)  # every build must come out newer than this
 declare -A OUT=(["Windows"]=builds/windows/MiningSim.exe ["macOS"]=builds/macos/MiningSim.zip
-	["Linux"]=builds/linux/MiningSim.x86_64 ["Web"]=builds/web/index.pck ["Web (private)"]=builds/web_private/index.pck)
-for preset in "Windows" "macOS" "Linux" "Web" "Web (private)"; do
+	["Linux"]=builds/linux/MiningSim.x86_64)
+for preset in "Windows" "macOS" "Linux"; do
 	echo "-- export $preset"
 	"$GODOT" --headless --path . --export-release "$preset" > builds/export.log 2>&1 || true
 	if grep -iE "error|fail" builds/export.log | grep -v "BUG\|unref"; then exit 1; fi
@@ -38,7 +38,6 @@ for preset in "Windows" "macOS" "Linux" "Web" "Web (private)"; do
 	fi
 done
 rm -f "$stamp"
-rm -f builds/web/*.import builds/web_private/*.import
 
 # The update: the macOS pack has every desktop texture format, so it suits all three.
 rm -f builds/update/*
@@ -59,27 +58,4 @@ ssh "$SERVER" "sudo install -d -m 755 $REMOTE_DIR && \
 	rm /tmp/update-$ver.bin /tmp/manifest.json && \
 	ls -t $REMOTE_DIR/update-*.bin | tail -n +4 | xargs -r sudo rm"
 
-# GitHub Pages: the public web build (never the private one: check the key isn't inside).
-if strings builds/web/index.pck | grep -qE "net/coop_key\.gd(c|\.remap)"; then
-	echo "Web build contains the co-op key! Not publishing it." >&2
-	exit 1
-fi
-echo "-- GitHub Pages"
-pages=$(mktemp -d)
-origin=$(git remote get-url origin)
-(
-	# A new commit on top of gh-pages (no force push, its history stays).
-	cd "$pages"
-	git init -q -b gh-pages
-	git -c core.autocrlf=false fetch -q --depth 1 "$origin" gh-pages && git reset -q --soft FETCH_HEAD || true
-	git rm -rq --cached . 2>/dev/null || true
-	cp "$OLDPWD"/builds/web/* .
-	touch .nojekyll
-	git add -A
-	git -c core.autocrlf=false commit -qm "Web build v$ver
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-	git push -q "$origin" gh-pages
-)
-rm -rf "$pages"
 echo "Released v$ver."

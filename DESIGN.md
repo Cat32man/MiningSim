@@ -390,3 +390,6 @@ The step between the fire caves and the next biome.
 - Chunks now unload 2 chunks past the view radius (they never did, so memory grew with travel); dug ones go back into _saved_density.
 - Co-op joining (v10): 10 s to connect, then up to 120 s for the host's world (big saves over the relay took longer than the old 10 s total, so joiners quit on their own); the title screen says "Downloading the world…". Avatars with no position update for 5 s are removed everywhere (no ghosts while a dropped peer times out).
 - Co-op: ENet peers time out after ~20-60 s of silence instead of a few seconds, so a slow joiner that stalls (loading, shader compiles) isn't kicked.
+
+## Web version
+- Taken down after v10: too laggy in a browser. tools/release.sh no longer exports Web/Web (private) or deploys GitHub Pages (the presets are still in export_presets.cfg).

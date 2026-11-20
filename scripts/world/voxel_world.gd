@@ -417,11 +417,30 @@ func scan_ores(center: Vector3, radius: float) -> Array:
 							var acc: Array = per.get_or_add(m, [Vector3.ZERO, 0])
 							acc[0] += p
 							acc[1] += 1
+	# Touching 4 m cells of the same material are one vein: a deposit, not dozens.
 	var out: Array = []
-	for cell in clusters:
+	var seen := {}  # "cell|mat" -> true
+	for cell: Vector3i in clusters:
 		for m in clusters[cell]:
-			var acc: Array = clusters[cell][m]
-			out.append({"mat": m, "pos": acc[0] / acc[1], "count": acc[1] * 8})
+			if seen.has([cell, m]):
+				continue
+			var sum := Vector3.ZERO
+			var n := 0
+			var todo: Array[Vector3i] = [cell]
+			seen[[cell, m]] = true
+			while not todo.is_empty():
+				var c: Vector3i = todo.pop_back()
+				var acc: Array = clusters[c][m]
+				sum += acc[0]
+				n += acc[1]
+				for dz in range(-1, 2):
+					for dy in range(-1, 2):
+						for dx in range(-1, 2):
+							var nb := c + Vector3i(dx, dy, dz)
+							if clusters.has(nb) and clusters[nb].has(m) and not seen.has([nb, m]):
+								seen[[nb, m]] = true
+								todo.append(nb)
+			out.append({"mat": m, "pos": sum / n, "count": n * 8})
 	out.sort_custom(func(a, b) -> bool: return a["count"] > b["count"])
 	return out
 

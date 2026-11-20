@@ -108,6 +108,9 @@ const SCAN_RADIUS := 32.0
 const SCAN_COOLDOWN := 6.0
 const SCAN_MARKER_TIME := 8.0
 const SCAN_MAX_MARKERS := 14
+## Ores in the scan summary and marker order, rarest first.
+const SCAN_RARITY := [Materials.DIAMOND, Materials.COBALT, Materials.OBSIDIAN, Materials.ELECTRUM,
+	Materials.IRON, Materials.COAL]
 
 const DrillScene = preload("res://assets/drill/drill.glb")
 const DiamondDrillScene = preload("res://assets/drill/diamonddrill.glb")
@@ -1346,9 +1349,26 @@ func scan() -> void:
 	if found.is_empty():
 		_flash("Scan: no ore within %d m" % int(SCAN_RADIUS))
 		return
-	_flash("Scan: %d ore deposits nearby" % found.size())
-	for i in mini(found.size(), SCAN_MAX_MARKERS):
-		var f: Dictionary = found[i]
+	# Rarest first: a summary per kind, and markers shared out in turns (nearest first),
+	# so plentiful coal and iron can't crowd out a diamond.
+	var by_mat := {}
+	for f in found:
+		by_mat.get_or_add(f["mat"], []).append(f)
+	var kinds: Array = SCAN_RARITY.filter(func(m): return by_mat.has(m))
+	var parts: Array[String] = []
+	for m in kinds:
+		parts.append("%d %s" % [by_mat[m].size(), Materials.NAMES[m].to_lower()])
+		by_mat[m].sort_custom(func(a, b) -> bool:
+			return a["pos"].distance_squared_to(global_position) < b["pos"].distance_squared_to(global_position))
+	_flash("Scan: " + " · ".join(parts))
+	var picks: Array = []
+	var turn := 0
+	while picks.size() < SCAN_MAX_MARKERS and turn < SCAN_MAX_MARKERS:
+		for m in kinds:
+			if turn < by_mat[m].size() and picks.size() < SCAN_MAX_MARKERS:
+				picks.append(by_mat[m][turn])
+		turn += 1
+	for f in picks:
 		var m: int = f["mat"]
 		var pos: Vector3 = f["pos"]
 		_scan_marker("◆ %s\n%d m" % [Materials.NAMES[m], roundi(pos.distance_to(global_position))],

@@ -6,6 +6,7 @@ signal unstuck_pressed
 signal coop_pressed
 signal pathtrace_pressed
 signal graphics_pressed
+signal renderer_pressed
 signal save_pressed
 signal save_quit_pressed
 signal quit_desktop_pressed
@@ -15,6 +16,7 @@ const UI = preload("res://scripts/ui/ui_kit.gd")
 var _status: Label
 var _pathtrace: Button
 var _graphics: Button
+var _renderer: Button
 
 
 func _ready() -> void:
@@ -29,6 +31,8 @@ func _ready() -> void:
 		box.add_child(UI.button("Open to co-op", func(): coop_pressed.emit()))
 	_graphics = UI.button("Graphics", func(): graphics_pressed.emit())
 	box.add_child(_graphics)
+	_renderer = UI.button("Renderer", func(): renderer_pressed.emit())
+	box.add_child(_renderer)
 	if ClassDB.class_exists("PathTraceEffect"):  # only where the GodotPathTrace extension loaded
 		_pathtrace = UI.button("Path tracing: Off", func(): pathtrace_pressed.emit())
 		box.add_child(_pathtrace)
@@ -39,8 +43,9 @@ func _ready() -> void:
 	box.add_child(_status)
 
 
-func show_graphics(text: String) -> void:
-	_graphics.text = text
+func show_graphics(quality: String, renderer: String) -> void:
+	_graphics.text = quality
+	_renderer.text = renderer
 
 
 func show_pathtrace(mode: String) -> void:

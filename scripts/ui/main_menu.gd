@@ -104,11 +104,17 @@ func _ready() -> void:
 	gfx.pressed.connect(func():
 		Graphics.next()
 		Graphics.apply(get_viewport(), null, null)
-		gfx.text = Graphics.label()
-		_restart.visible = Graphics.needs_restart()
-		set_note("Restart to switch renderer" if Graphics.needs_restart() else ""))
+		gfx.text = Graphics.label())
 	gfx.size_flags_vertical = Control.SIZE_SHRINK_END
 	footer.add_child(gfx)
+	var api := _button(Graphics.renderer_label(), func(): pass, false)
+	api.pressed.connect(func():
+		Graphics.next_renderer()
+		api.text = Graphics.renderer_label()
+		_restart.visible = Graphics.needs_restart()
+		set_note("Restart to switch renderer" if Graphics.needs_restart() else ""))
+	api.size_flags_vertical = Control.SIZE_SHRINK_END
+	footer.add_child(api)
 	var texts := _button("Text editor", func(): text_editor.emit(), false)
 	texts.size_flags_vertical = Control.SIZE_SHRINK_END
 	footer.add_child(texts)

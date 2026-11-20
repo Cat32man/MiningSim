@@ -120,9 +120,9 @@ func _ready() -> void:
 			# The graphics driver crashed (old Intel drivers do this with Vulkan): offer OpenGL.
 			error_screen.show_report.call_deferred("The graphics driver crashed last time",
 				"Your graphics driver stopped responding. Updating it often fixes this. Or switch " +
-				"to the simpler OpenGL renderer (Very low), which works on almost anything.",
-				tail, "Switch to Very low (OpenGL)", func():
-					Graphics.set_level("very_low")
+				"to the simpler OpenGL renderer, which works on almost anything.",
+				tail, "Switch to OpenGL", func():
+					Graphics.set_renderer("opengl")
 					Updates.restart())
 		else:
 			error_screen.show_report.call_deferred("The game didn't close properly last time",
@@ -510,15 +510,17 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	pause_menu.graphics_pressed.connect(func():
 		Graphics.next()
 		Graphics.apply(get_viewport(), _env, world)
-		pause_menu.show_graphics(Graphics.label())
-		if Graphics.needs_restart():
-			pause_menu.set_status("Restart the game to switch renderer"))
+		pause_menu.show_graphics(Graphics.label(), Graphics.renderer_label()))
+	pause_menu.renderer_pressed.connect(func():
+		Graphics.next_renderer()
+		pause_menu.show_graphics(Graphics.label(), Graphics.renderer_label())
+		pause_menu.set_status("Restart the game to switch renderer" if Graphics.needs_restart() else ""))
 	pause_menu.save_pressed.connect(func(): pause_menu.set_status("Saved." if _save_game() else "Save failed!"))
 	pause_menu.save_quit_pressed.connect(func(): _save_game(); _end_game(); _show_menu())
 	pause_menu.quit_desktop_pressed.connect(func(): _save_game(); get_tree().quit())
 	_game.add_child(pause_menu)
 	pause_menu.show_pathtrace(_pt_mode)
-	pause_menu.show_graphics(Graphics.label())
+	pause_menu.show_graphics(Graphics.label(), Graphics.renderer_label())
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 

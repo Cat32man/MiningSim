@@ -388,4 +388,5 @@ The step between the fire caves and the next biome.
 ## Performance (v9)
 - Graphics quality (scripts/graphics.gd): Low / Medium / High, title screen and Esc menu, per computer. Low: 60% resolution with FSR, no fog/SSAO/glow, no lamp shadows, view radius 3 chunks. Medium: 80%, fog and glow, 2048 shadow atlas. High: full res, 2x MSAA, everything. First run on an integrated GPU starts on Low.
 - Chunks now unload 2 chunks past the view radius (they never did, so memory grew with travel); dug ones go back into _saved_density.
+- Co-op joining (v10): 10 s to connect, then up to 120 s for the host's world (big saves over the relay took longer than the old 10 s total, so joiners quit on their own); the title screen says "Downloading the world…". Avatars with no position update for 5 s are removed everywhere (no ghosts while a dropped peer times out).
 - Co-op: ENet peers time out after ~20-60 s of silence instead of a few seconds, so a slow joiner that stalls (loading, shader compiles) isn't kicked.

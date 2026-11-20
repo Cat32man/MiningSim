@@ -20,6 +20,7 @@ signal failed(text: String)  # client: couldn't connect
 signal host_left  # client: the host closed the game
 signal players_changed(count: int)
 signal relay_ready(address: String)  # host: friends can join at this address
+signal joining(text: String)  # client: where joining has got to
 
 const RemotePlayer = preload("res://scripts/net/remote_player.gd")
 const Bug = preload("res://scripts/enemies/bug.gd")
@@ -39,7 +40,9 @@ const RELAY_KEEPALIVE := 5.0
 const RELAY_LOST := 15.0  # no word from the relay this long: register again
 const MAX_PLAYERS := 4
 const SEND_RATE := 20.0
-const JOIN_TIMEOUT := 10.0
+const JOIN_TIMEOUT := 10.0  # to get connected
+const WORLD_TIMEOUT := 120.0  # then to receive the host's world (big saves, slow links)
+const AVATAR_STALE := 5.0  # an avatar with no news this long is taken away
 const MACHINE_RATE := 10.0  # machine syncs a second
 const HOLD := 0.6  # a joiner ignores the host's copy this long after changing a machine
 const POD := 0  # sync key for the drop pod's storage (buildings count up from 1)
@@ -173,7 +176,10 @@ func join(address: String) -> Error:
 		return err
 	_setup_auth(k)
 	multiplayer.connection_failed.connect(func(): _fail("No game found there"))
-	multiplayer.connected_to_server.connect(func(): _patient(1))
+	multiplayer.connected_to_server.connect(func():
+		_patient(1)
+		_join_t = WORLD_TIMEOUT  # connected: now the world itself can take its time
+		joining.emit("Downloading the world…"))
 	multiplayer.server_disconnected.connect(func():
 		if _joined:
 			host_left.emit()
@@ -377,6 +383,15 @@ func _process(delta: float) -> void:
 		_join_t -= delta
 		if _join_t <= 0.0:
 			_fail("No game open to join")
+	# Someone who stopped sending (left, timed out, rejoined as a new peer) shouldn't linger
+	# as a ghost until the connection itself gives up.
+	var now := Time.get_ticks_msec() / 1000.0
+	for id in _avatars.keys():
+		if now - float(_avatars[id].get_meta("seen", now)) > AVATAR_STALE:
+			if is_instance_valid(_avatars[id]):
+				_avatars[id].queue_free()
+			_avatars.erase(id)
+			players_changed.emit(player_count())
 	if not active() or player == null or not is_instance_valid(player) or not player.active:
 		return
 	_sync_machines(delta)
@@ -461,6 +476,7 @@ func _state(pos: Vector3, yaw: float, pitch: float, health: float) -> void:
 		players_changed.emit(player_count())
 	av.target(pos, yaw, pitch)
 	av.health = health
+	av.set_meta("seen", Time.get_ticks_msec() / 1000.0)
 
 
 ## Host: a bug or boss hit a joiner's stand-in; the hit lands on their own computer.

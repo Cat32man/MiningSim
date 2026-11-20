@@ -274,6 +274,9 @@ func _join_coop(address: String) -> void:
 		_menu.set_note("No co-op key in this build" if err == ERR_UNCONFIGURED else "Couldn't reach %s" % address)
 		return
 	_menu.set_note("Joining %s…" % address)
+	net.joining.connect(func(t: String):
+		if _menu:
+			_menu.set_note(t))
 
 
 func _hook_net() -> void:

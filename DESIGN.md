@@ -393,3 +393,8 @@ The step between the fire caves and the next biome.
 
 ## Web version
 - Taken down after v10: too laggy in a browser. tools/release.sh no longer exports Web/Web (private) or deploys GitHub Pages (the presets are still in export_presets.cfg).
+
+## Error screen (v11)
+- scripts/ui/error_screen.gd: a Godot 4.5 Logger catches errors. Script errors and the game's push_error()s pop up a panel during play ("Copy details" = version, GPU, recent errors; "Open log folder"; "Keep playing"); engine-internal errors are only recorded.
+- user://running.flag is written at start and removed on a clean quit; if it's still there next time, the title screen reports the last run didn't close properly, with the end of its log in the copied details. Only in normal runs (not headless or test-argument runs).
+- Losing the host mid-game shows it as "Disconnected".

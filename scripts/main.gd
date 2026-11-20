@@ -35,6 +35,7 @@ const Sfx = preload("res://scripts/audio/sfx.gd")
 const NetSession = preload("res://scripts/net/net_session.gd")
 const PathTraceLoader = preload("res://scripts/pathtrace_loader.gd")
 const Graphics = preload("res://scripts/graphics.gd")
+const ErrorScreen = preload("res://scripts/ui/error_screen.gd")
 
 const MAX_BODIES := 3
 
@@ -73,6 +74,7 @@ var _selftest := false
 var _screenshot_path := ""
 var _fight_arbiter := false  # --fight-arbiter: unsaved game starting in the seal chamber
 var net  # NetSession while co-op is open (host) or joined (client)
+var error_screen  # ErrorScreen: errors, crash reports, disconnects
 var _coop_players := {}  # host save: joiners' backpacks/gear/spots by player id
 const SETTINGS := "user://settings.cfg"
 ## GodotPathTrace (addons/pathtrace, Windows builds only) as a compositor effect: its Light
@@ -105,6 +107,17 @@ var _silicon_t := 0.0
 
 
 func _ready() -> void:
+	ErrorScreen.install()  # catch errors from here on
+	error_screen = ErrorScreen.new()
+	add_child(error_screen)
+	error_screen.on_close = func():
+		if _game and not get_tree().paused and not (build_menu.visible or building_panel.visible
+				or death_screen.visible or scan_view.visible):
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	if _normal_run() and ErrorScreen.last_run_crashed():
+		error_screen.show_report.call_deferred("The game didn't close properly last time",
+			"It may have frozen or crashed. If that keeps happening, copy the details for a bug report.",
+			ErrorScreen.previous_log_tail())
 	PathTraceLoader.ensure()  # before the environment asks whether path tracing exists
 	# 3D labels (scanner tags, bug numbers) use the same font as the UI.
 	ThemeDB.fallback_font = preload("res://assets/fonts/ui_font.tres")
@@ -267,7 +280,9 @@ func _join_coop(address: String) -> void:
 	net.host_left.connect(func():
 		_end_game()
 		_show_menu()
-		_menu.set_note("The host closed the game"))
+		_menu.set_note("The host closed the game")
+		error_screen.show_report("Disconnected", "Lost the connection to the host: they closed the " +
+			"game, or the connection dropped. Join again from the title screen."))
 	var err: Error = net.join(address)
 	if err != OK:
 		_drop_net()
@@ -534,6 +549,13 @@ func _save_game() -> bool:
 
 func _exit_tree() -> void:
 	Sfx._cache.clear()  # static cache would otherwise be reported as leaked at exit
+	if _normal_run():
+		ErrorScreen.mark_clean_exit()
+
+
+## A player's game (not a test run, which may be cut off on purpose).
+static func _normal_run() -> bool:
+	return DisplayServer.get_name() != "headless" and OS.get_cmdline_user_args().is_empty()
 
 
 func _notification(what: int) -> void:

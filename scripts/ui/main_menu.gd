@@ -10,6 +10,7 @@ const UI = preload("res://scripts/ui/ui_kit.gd")
 const SaveSystem = preload("res://scripts/save/save_system.gd")
 const Items = preload("res://scripts/items/items.gd")
 const ServerList = preload("res://scripts/net/server_list.gd")
+const Graphics = preload("res://scripts/graphics.gd")
 
 const SLOTS := 3
 const ACCENT := Color(1.0, 0.72, 0.3)
@@ -99,6 +100,13 @@ func _ready() -> void:
 		column.add_child(coop)
 		_finder = ServerList.new()
 		add_child(_finder)
+	var gfx := _button(Graphics.label(), func(): pass, false)
+	gfx.pressed.connect(func():
+		Graphics.next()
+		Graphics.apply(get_viewport(), null, null)
+		gfx.text = Graphics.label())
+	gfx.size_flags_vertical = Control.SIZE_SHRINK_END
+	footer.add_child(gfx)
 	var texts := _button("Text editor", func(): text_editor.emit(), false)
 	texts.size_flags_vertical = Control.SIZE_SHRINK_END
 	footer.add_child(texts)

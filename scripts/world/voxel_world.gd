@@ -18,8 +18,9 @@ signal edited(op: Dictionary)
 const S := 16
 const S3 := S * S * S
 const P := S + 2
-const VIEW_RADIUS_H := 4
 const VIEW_RADIUS_V := 3
+## Chunks this far past the view radius are dropped (dug ones keep their digging for later).
+const UNLOAD_MARGIN := 2
 const MAX_MESH_APPLY_PER_FRAME := 8
 
 
@@ -42,6 +43,7 @@ var world_seed := 1337
 ## Node whose position drives streaming (the player).
 var focus: Node3D
 
+var view_radius_h := 4  # chunks loaded around the focus, sideways (graphics setting)
 var _chunks := {}  # Vector3i -> Chunk
 ## Densities from a save file, applied when each chunk is (re)generated. Materials never
 ## change when digging, so they are regenerated from the seed instead of saved.
@@ -81,6 +83,7 @@ func _process(_delta: float) -> void:
 		if center != _last_center:
 			_last_center = center
 			_request_chunks_around(center)
+			_unload_far(center)
 	_apply_results()
 
 
@@ -476,9 +479,9 @@ func density_at(p: Vector3i) -> float:
 
 func _request_chunks_around(center: Vector3i) -> void:
 	var wanted: Array[Vector3i] = []
-	for dz in range(-VIEW_RADIUS_H, VIEW_RADIUS_H + 1):
+	for dz in range(-view_radius_h, view_radius_h + 1):
 		for dy in range(-VIEW_RADIUS_V, VIEW_RADIUS_V + 1):
-			for dx in range(-VIEW_RADIUS_H, VIEW_RADIUS_H + 1):
+			for dx in range(-view_radius_h, view_radius_h + 1):
 				var c := center + Vector3i(dx, dy, dz)
 				# Everything this far above the ceiling is solid bedrock with no surface.
 				if c.y * S > Generator.CEILING_Y + S:
@@ -492,6 +495,26 @@ func _request_chunks_around(center: Vector3i) -> void:
 		ch.cpos = c
 		_chunks[c] = ch
 		_tasks.append(WorkerThreadPool.add_task(_task_generate.bind(c)))
+
+
+## Frees chunks well outside the view (they used to stay loaded forever, so memory kept
+## growing as you travelled). Dug ones go back into _saved_density, which is what a save
+## stores and what regeneration reads, so the digging is there when you come back.
+func _unload_far(center: Vector3i) -> void:
+	var keep_h := view_radius_h + UNLOAD_MARGIN
+	var keep_v := VIEW_RADIUS_V + UNLOAD_MARGIN
+	for c: Vector3i in _chunks.keys():
+		var d := c - center
+		if absi(d.x) <= keep_h and absi(d.z) <= keep_h and absi(d.y) <= keep_v:
+			continue
+		var ch: Chunk = _chunks[c]
+		if not ch.generated:
+			continue  # still being generated: catch it next time
+		if ch.modified:
+			_saved_density[c] = [ch.density, ch.mats]
+		if ch.mesh_instance:
+			ch.mesh_instance.queue_free()  # its collision and crystals go with it
+		_chunks.erase(c)
 
 
 func _schedule_mesh(ch: Chunk, high_priority: bool) -> void:

@@ -34,6 +34,7 @@ const LoadingScreen = preload("res://scripts/ui/loading_screen.gd")
 const Sfx = preload("res://scripts/audio/sfx.gd")
 const NetSession = preload("res://scripts/net/net_session.gd")
 const PathTraceLoader = preload("res://scripts/pathtrace_loader.gd")
+const Graphics = preload("res://scripts/graphics.gd")
 
 const MAX_BODIES := 3
 
@@ -349,6 +350,7 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	world.world_seed = data.get("seed", 1337 if slot < 0 else randi())
 	world.import_modified(data.get("chunks", {}))
 	world.import_pending(data.get("net_edits", {}))
+	Graphics.apply(get_viewport(), _env, world)  # before it starts loading chunks
 	_game.add_child(world)
 
 	pod = DropPod.new()
@@ -477,11 +479,16 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	pause_menu.unstuck_pressed.connect(_on_unstuck)
 	pause_menu.coop_pressed.connect(_open_coop)
 	pause_menu.pathtrace_pressed.connect(_next_pathtrace)
+	pause_menu.graphics_pressed.connect(func():
+		Graphics.next()
+		Graphics.apply(get_viewport(), _env, world)
+		pause_menu.show_graphics(Graphics.label()))
 	pause_menu.save_pressed.connect(func(): pause_menu.set_status("Saved." if _save_game() else "Save failed!"))
 	pause_menu.save_quit_pressed.connect(func(): _save_game(); _end_game(); _show_menu())
 	pause_menu.quit_desktop_pressed.connect(func(): _save_game(); get_tree().quit())
 	_game.add_child(pause_menu)
 	pause_menu.show_pathtrace(_pt_mode)
+	pause_menu.show_graphics(Graphics.label())
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -1641,6 +1648,7 @@ func _make_environment() -> void:
 	add_child(we)
 	_env = env
 	_world_env = we
+	Graphics.apply(get_viewport(), _env, null)
 	_setup_pathtrace()
 
 

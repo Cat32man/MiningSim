@@ -173,6 +173,7 @@ func join(address: String) -> Error:
 		return err
 	_setup_auth(k)
 	multiplayer.connection_failed.connect(func(): _fail("No game found there"))
+	multiplayer.connected_to_server.connect(func(): _patient(1))
 	multiplayer.server_disconnected.connect(func():
 		if _joined:
 			host_left.emit()
@@ -401,7 +402,18 @@ func _process(delta: float) -> void:
 
 # --- Joining ------------------------------------------------------------------------
 
+## A slow computer can freeze for a while (loading the world, compiling shaders); ENet's
+## default would drop it after a few seconds. Give it about a minute.
+func _patient(id: int) -> void:
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet:
+		var p := enet.get_peer(id)
+		if p:
+			p.set_timeout(32, 20000, 60000)
+
+
 func _on_peer_joined(id: int) -> void:
+	_patient(id)
 	var data: Dictionary = snapshot.call()
 	var mine = saved_players.get(_peer_ids.get(id, ""))
 	if mine is Dictionary:

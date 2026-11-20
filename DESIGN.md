@@ -384,3 +384,8 @@ The step between the fire caves and the next biome.
 - Rail (2 iron, build menu): a 4 m piece. Aim near a line's free end to extend it: the new piece turns toward your aim (max ~20° per piece) and tilts to follow the ground (max ±30°, max ~15° change per piece; over a drop it keeps its slope, so it bridges). Elsewhere it starts a new line the way you face, on flat ground. Not within the drop pod's clearance.
 - Rail cart (30 iron, 10 electrum): placed on a rail. [E] ride, W forward (16 m/s top), S brake then reverse (6 m/s), Tab cargo (12 slots, Load ore / Take all). Crosses joints onto the straightest joined piece, stops at the end of a line, slopes pull a little, coasts to a stop when you get off.
 - Rails and carts aren't raid targets (Building.raidable). Both are ordinary buildings: saved, removable with X, synced in co-op.
+
+## Performance (v9)
+- Graphics quality (scripts/graphics.gd): Low / Medium / High, title screen and Esc menu, per computer. Low: 60% resolution with FSR, no fog/SSAO/glow, no lamp shadows, view radius 3 chunks. Medium: 80%, fog and glow, 2048 shadow atlas. High: full res, 2x MSAA, everything. First run on an integrated GPU starts on Low.
+- Chunks now unload 2 chunks past the view radius (they never did, so memory grew with travel); dug ones go back into _saved_density.
+- Co-op: ENet peers time out after ~20-60 s of silence instead of a few seconds, so a slow joiner that stalls (loading, shader compiles) isn't kicked.

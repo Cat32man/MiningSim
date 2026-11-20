@@ -115,9 +115,19 @@ func _ready() -> void:
 				or death_screen.visible or scan_view.visible):
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if _normal_run() and ErrorScreen.last_run_crashed():
-		error_screen.show_report.call_deferred("The game didn't close properly last time",
-			"It may have frozen or crashed. If that keeps happening, copy the details for a bug report.",
-			ErrorScreen.previous_log_tail())
+		var tail: String = ErrorScreen.previous_log_tail()
+		if "device was lost" in tail and not Graphics.using_opengl():
+			# The graphics driver crashed (old Intel drivers do this with Vulkan): offer OpenGL.
+			error_screen.show_report.call_deferred("The graphics driver crashed last time",
+				"Your graphics driver stopped responding. Updating it often fixes this. Or switch " +
+				"to the simpler OpenGL renderer (Very low), which works on almost anything.",
+				tail, "Switch to Very low (OpenGL)", func():
+					Graphics.set_level("very_low")
+					Updates.restart())
+		else:
+			error_screen.show_report.call_deferred("The game didn't close properly last time",
+				"It may have frozen or crashed. If that keeps happening, copy the details for a bug report.",
+				tail)
 	PathTraceLoader.ensure()  # before the environment asks whether path tracing exists
 	# 3D labels (scanner tags, bug numbers) use the same font as the UI.
 	ThemeDB.fallback_font = preload("res://assets/fonts/ui_font.tres")
@@ -500,7 +510,9 @@ func _start_game(slot: int, data: Dictionary) -> void:
 	pause_menu.graphics_pressed.connect(func():
 		Graphics.next()
 		Graphics.apply(get_viewport(), _env, world)
-		pause_menu.show_graphics(Graphics.label()))
+		pause_menu.show_graphics(Graphics.label())
+		if Graphics.needs_restart():
+			pause_menu.set_status("Restart the game to switch renderer"))
 	pause_menu.save_pressed.connect(func(): pause_menu.set_status("Saved." if _save_game() else "Save failed!"))
 	pause_menu.save_quit_pressed.connect(func(): _save_game(); _end_game(); _show_menu())
 	pause_menu.quit_desktop_pressed.connect(func(): _save_game(); get_tree().quit())

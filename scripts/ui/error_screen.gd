@@ -47,6 +47,8 @@ var _body: VBoxContainer
 var _title: Label
 var _text: Label
 var _extra := ""
+var _action: Button  # an optional fix offered with the report
+var _action_fn: Callable
 
 
 ## Start catching errors (first thing at start-up).
@@ -69,6 +71,11 @@ func _ready() -> void:
 	_body.add_child(_text)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
+	_action = UI.button("", func():
+		if _action_fn.is_valid():
+			_action_fn.call())
+	_action.visible = false
+	row.add_child(_action)
 	row.add_child(UI.button("Copy details", func():
 		DisplayServer.clipboard_set(details())
 		_text.text += "\n\nCopied: paste it to whoever makes the game."))
@@ -97,10 +104,13 @@ func _process(_dt: float) -> void:
 
 
 ## Shows the panel (replacing what it showed). `extra` goes into "Copy details" too.
-func show_report(title: String, text: String, extra := "") -> void:
+func show_report(title: String, text: String, extra := "", action_label := "", action := Callable()) -> void:
 	_title.text = title
 	_text.text = text
 	_extra = extra
+	_action_fn = action
+	_action.text = action_label
+	_action.visible = action_label != "" and action.is_valid()
 	visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 

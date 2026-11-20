@@ -104,7 +104,9 @@ func _ready() -> void:
 	gfx.pressed.connect(func():
 		Graphics.next()
 		Graphics.apply(get_viewport(), null, null)
-		gfx.text = Graphics.label())
+		gfx.text = Graphics.label()
+		_restart.visible = Graphics.needs_restart()
+		set_note("Restart to switch renderer" if Graphics.needs_restart() else ""))
 	gfx.size_flags_vertical = Control.SIZE_SHRINK_END
 	footer.add_child(gfx)
 	var texts := _button("Text editor", func(): text_editor.emit(), false)
